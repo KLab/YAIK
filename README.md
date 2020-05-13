@@ -1,5 +1,6 @@
 # YAIK
 Research Framework for image compression.
+(Y)et (A)nother (I)mage (K)compression
 
 # Goal
 
