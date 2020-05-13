@@ -30,3 +30,16 @@
 *.exe
 *.out
 *.app
+
+# Visual Studio stuff
+*.suo
+*.db
+*.opendb
+*.ipch
+*.filters
+*.log
+*.pdb
+*.tlog
+*.idb
+*.ilk
+*.user

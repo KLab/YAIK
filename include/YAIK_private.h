@@ -54,7 +54,7 @@ struct YAIK_Library {
 	s32				totalSlotCount;
 	s32				freeSlotCount;
 	// List of slot available.
-	YAIK_Instance*	freeStack[257];
+	YAIK_Instance*	freeStack[257]; // API Limit to u8 type max of multithreaded decode context.
 	// Allocate slots.
 	YAIK_Instance*	instances;
 

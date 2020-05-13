@@ -11,7 +11,7 @@
 
 // Allow use 'bool' type if not in C++
 #ifndef __cplusplus
-	#include “stdbool.h”
+	#include "stdbool.h"
 #endif
 
 // Wrap standard integer type definition into a shorter easier to maintain type.
@@ -21,6 +21,7 @@ typedef int8_t				s8;
 typedef uint16_t			u16;
 typedef int16_t				s16;
 typedef uint32_t			u32;
+typedef int32_t				s32;
 typedef uint64_t			u64;
 
 // Wrap Decoder context into type.
