@@ -1,7 +1,7 @@
 # YAIK
 Research Framework for image compression.
 
-#Goal
+# Goal
 
 Try alternative techniques to compress images. The reason for it, is that Jpeg / Webp are going into the 'frequency' transform to remove information. 
 Depending on the technique, that results in unwanted noise or too much flattened surfaces.
@@ -11,7 +11,7 @@ GPU offers quite good compression technique, by encoding block and compressing t
 Anyway, that is the goal of the project : Research some compression algorithm. Especially some that could be good for our games.
 Trying to keep as much as possible quality from 'anime' like illustrations, with obviously minimum file size AND fast decoding time if possible.
 
-#Rationale
+# Rationale
 	
 Obviously, hardware based compression format can themselves be restructured to use a different pre-encoding and be compressed with a lossless compressor, and decompressed into a GPU friendly format.
 
@@ -35,7 +35,7 @@ There are various parameters for the compression/decompression :
 - Runtime memory usage at decompression.
 - Runtime memory usage at runtime (ie compressed hardware texture format are smaller as they are used as is by the hardware).
 
-#Code Structure
+# Code Structure
 
 There are three parts.
 - The encoder project.
@@ -84,7 +84,7 @@ For now, [ZStd](https://github.com/facebook/zstd) is used for the encoder and de
 
 A Visual Studio 2019 project is available inside encoder\vc_prj. Should build and compile straight out of the box.
 
-#Encoding techniques
+# Encoding techniques
 
 Some techniques have been implemented and failed. The source is still inside the project but will not be introduced.
 
@@ -106,6 +106,6 @@ My idea would be to not only fit along a 3D segment (Start-End color point) but 
 Same as the previous technique, except that we correlate only the CoCg planes in 2D and try to fit along a 'shape' to match the change.
 We allow the Y plane to modulate the color has needed but do not try to interfere with it.
 	
-#Decoder
+# Decoder
 
 TODO LATER when decoder source code will be uploaded.
