@@ -50,7 +50,6 @@
     <ClInclude Include="..\..\include\YAIK_private.h" />
     <ClInclude Include="..\EncoderContext.h" />
     <ClInclude Include="..\framework.h" />
-    <ClInclude Include="..\QuadSpline.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>

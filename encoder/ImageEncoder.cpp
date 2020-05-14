@@ -13,7 +13,9 @@ int main(int argCnt, const char** args)
 //	"b_rankup_4300300.png"	// Arabian Nights.
 	;
 
-	EncoderContext ctx;
+	EncoderContext* pCtx = new EncoderContext(); // Big 4 MB.
+
+	EncoderContext& ctx  = *pCtx;
 	// ---- Setup ----
 	ctx.halfCoW = false;
 	ctx.halfCoH = false;
@@ -30,4 +32,6 @@ int main(int argCnt, const char** args)
 	ctx.LoadImagePNG(fileName);
 	ctx.convert("myTestFile.yaik");
 	ctx.Release();
+
+	delete pCtx;
 }

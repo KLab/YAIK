@@ -1,13 +1,13 @@
-#ifndef KLB_QUAD_SPLINE
-#define KLB_QUAD_SPLINE
+#ifndef KLB_SEGMENTS
+#define KLB_SEGMENTS
 
 #include <math.h>
 #include <float.h>
 //#include "glm/vec2.hpp"
 
-float sgnf(float v) {
-	return (v > 0.0f) ? 1.0f : ((v < 0.0f) ? -1.0f : 0.0f);
-}
+//float sgnf(float v) {
+//	return (v > 0.0f) ? 1.0f : ((v < 0.0f) ? -1.0f : 0.0f);
+//}
 
 /*
 struct vec2 {
@@ -105,7 +105,70 @@ float sdBezier( glm::vec2 pos, glm::vec2 A, glm::vec2 B, glm::vec2 C );
 float udBezier( glm::vec2 pos, glm::vec2 A, glm::vec2 B, glm::vec2 C );
 */
 
-struct QuadSpline {
+struct AbstractSegment {
+	float pieceLength;
+
+	float Length() {
+		return pieceLength;
+	}
+
+	virtual float ComputeDistance(float x, float y, float& xClosest, float& yClosest, float& tLocal) = 0;
+};
+
+struct LinearEqu2D : public AbstractSegment {
+	float x0; // Included
+	float y0;
+	float x1; // Excluded, except last segment.
+	float y1; // Excluded
+
+	float dx;
+	float dy;
+	void Set(float x0, float y0, float x1, float y1) {
+		this->x0 = x0;
+		this->y0 = y0;
+		this->x1 = x1;
+		this->y1 = y1;
+
+		dx = x1-x0;
+		dy = y1-y0;
+		pieceLength = sqrtf(dx*dx + dy*dy);
+	}
+
+	float distancePartPosition;
+	float distancePart;
+
+	float ComputeDistance(float x, float y, float& xClosest, float& yClosest, float& tLocal) {
+		float U;
+		float xIntersection,yIntersection;
+ 
+		U = ( ( ( x - x0 ) * ( dx ) ) +
+			(   ( y - y0 ) * ( dy ) )
+			// + ( ( Point->Z - LineStart->Z ) * ( LineEnd->Z - LineStart->Z ) )
+			) / ( pieceLength * pieceLength );
+
+		tLocal = U;
+
+		if (U < 0.0f) { U = 0.0f; }
+		if (U > 1.0f) { U = 1.0f; }
+
+		/*
+		if( U < 0.0f || U > 1.0f ) {
+				// closest point does not fall within the line segment
+		}
+		*/
+
+		xIntersection = x0 + U * dx;
+		yIntersection = y0 + U * dy;
+		// Intersection.Z = LineStart->Z + U * ( LineEnd->Z - LineStart->Z );
+
+		LinearEqu2D equ;
+		equ.Set(x,y,xIntersection,yIntersection);
+		return equ.pieceLength;
+	}
+};
+
+/*
+struct QuadSpline : public AbstractSegment {
 	void Set(float x0, float y0, float cx, float cy, float x1, float y1) {
 		this->x0 = x0;
 		this->y0 = y0;
@@ -185,7 +248,7 @@ struct QuadSpline {
 		return minT;
 	}
 
-	bool ComputeClosest(int x, int y, float& closestX, float& closestY) {
+	float ComputeDistance(float x, float y, float& closestX, float& closestY) {
 		float posX = x0 - x;
 		float posY = y0 - y;
 		
@@ -209,6 +272,8 @@ struct QuadSpline {
 		// float norX,norY;
 		float posMinX,posMinY;
 		float t = -1000000.0;
+
+		float dist;
 
 		if (count != 0) {
 			for (int i=1;i<=count;i++) {
@@ -247,7 +312,9 @@ struct QuadSpline {
 //				nearest.dist = distMin;
 //				nearest.orientedDist = orientedDist;
 //				nearest.onCurve = true;
-				return true;
+				float dx = (closestX-x);
+				float dy = (closestY-y);
+				return sqrt(dx*dx+dy*dy);
 			}
 		}
 
@@ -274,8 +341,12 @@ struct QuadSpline {
 //		nearest.nor = nor;
 //		nearest.orientedDist = nearest.dist = distMin;
 //		nearest.onCurve = false;
-		return false;
+
+		float dx = (closestX-x);
+		float dy = (closestY-y);
+		return sqrt(dx*dx+dy*dy);
 	}
+
 	float ComputeDistance(int x, int y, int& idx) {
 		float shortest = 999999999.0f;
 		float fx = (float)x;
@@ -418,6 +489,6 @@ private:
 	float Bx, By;
 	float minX, maxX,minY,maxY;
 };
+*/
 
 #endif
-

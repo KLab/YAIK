@@ -3083,48 +3083,8 @@ void EncoderContext::Release() {
 }
 
 
-struct EvalCtx {
-	EvalCtx(float acceptanceScore, int* tblStorage, int r, int g, int b):tableStorage(tblStorage) {
-		color[0] = r;
-		color[1] = g;
-		color[2] = b;
-		acceptScore = acceptanceScore;
-	}
-
-	int*  tableStorage;
-	int   sumDistance;
-	int   sampleCount;
-	int   distSamples[64];
-
-	float acceptScore;
-	int   color[3];
-
-	void EvaluateStart() {
-		sumDistance = 0;
-		sampleCount = 0;
-	}
-
-	void EvaluatePoint(int x, int y) {
-		int dist = tableStorage[x + (y<<6)];
-		distSamples[sampleCount++] = dist;
-		sumDistance += dist;
-	}
-
-	void GetEvaluation(float& score, float& stdDeviation) {
-		float avg = sumDistance / (float)(sampleCount*1024.0f);
-		float stdDev = 0.0f;
-		for (int n=0; n < sampleCount; n++) {
-			float diffAvg = avg - (distSamples[n]/1024.0f);	
-			stdDev += (diffAvg * diffAvg);
-		}
-		score = avg;
-		stdDeviation = stdDev / sampleCount;
-	}
-};
-
-#include "QuadSpline.h"
-
-void BuildTable(QuadSpline* list, int countList, int* target64x64) {
+/*
+void BuildDistanceField(QuadSpline* list, int countList, int* target64x64) {
 	for (int y=0; y < 64; y++) {
 		for (int x=0; x < 64; x++) {
 			float minDist = 999999999.0f;
@@ -3144,7 +3104,226 @@ void BuildTable(QuadSpline* list, int countList, int* target64x64) {
 		}
 		printf("\n");
 	}
+}
+*/
 
+void EncoderContext::Create2DCorrelationPatterns() {
+}
+
+void EncoderContext::EvalCtx::BuildDistanceField() {
+	float totalDistance = 0.0f;
+
+	// Compute total distance.
+	for (int n=0; n < equCount; n++) {
+		totalDistance += equList[n].pieceLength;
+	}
+
+	// Compute Segment part : % from start, % of total length.
+	float currDistance = 0.0f;
+	for (int n=0; n < equCount; n++) {
+		equList[n].distancePartPosition = currDistance        / totalDistance;
+		equList[n].distancePart			= equList[n].pieceLength / totalDistance;
+		currDistance += equList[n].pieceLength;
+	}
+
+	float step = 1.0f/63.0f;
+	float pos  = 0.0f;
+	int   c    = 0;
+	for (int n=0; n < 64; n++) {
+		float posLocal = ((pos - equList[c].distancePartPosition) / equList[c].distancePart) + 0.00001f;
+		xFactor5Bit[n] = ((equList[c].x0 + ((equList[c].x1-equList[c].x0) * posLocal)) / 64.0f) * 255.0f;
+		yFactor5Bit[n] = ((equList[c].y0 + ((equList[c].y1-equList[c].y0) * posLocal)) / 64.0f) * 255.0f;
+		tFactor5Bit[n] = pos;
+		pos += step;
+		if (pos > (equList[c].distancePartPosition + equList[c].distancePart)) {
+			c++;
+		}
+	}
+
+	step = 1.0f/31.0f;
+	pos  = 0.0f;
+	c    = 0;
+	for (int n=0; n < 32; n++) {
+		float posLocal = ((pos - equList[c].distancePartPosition) / equList[c].distancePart) + 0.00001f;
+		xFactor4Bit[n] = ((equList[c].x0 + ((equList[c].x1-equList[c].x0) * posLocal)) / 64.0f) * 255.0f;
+		yFactor4Bit[n] = ((equList[c].y0 + ((equList[c].y1-equList[c].y0) * posLocal)) / 64.0f) * 255.0f;
+		tFactor4Bit[n] = pos;
+		pos += step;
+		if (pos > (equList[c].distancePartPosition + equList[c].distancePart)) {
+			c++;
+		}
+	}
+
+	step = 1.0f/15.0f;
+	pos  = 0.0f;
+	c    = 0;
+	for (int n=0; n < 16; n++) {
+		float posLocal = ((pos - equList[c].distancePartPosition) / equList[c].distancePart) + 0.00001f;
+		xFactor3Bit[n] = ((equList[c].x0 + ((equList[c].x1-equList[c].x0) * posLocal)) / 64.0f) * 255.0f;
+		yFactor3Bit[n] = ((equList[c].y0 + ((equList[c].y1-equList[c].y0) * posLocal)) / 64.0f) * 255.0f;
+		tFactor3Bit[n] = pos;
+		pos += step;
+		if (pos > (equList[c].distancePartPosition + equList[c].distancePart)) {
+			c++;
+		}
+	}
+
+	/*
+		int   position5Bit[64*64];
+		int   position4Bit[64*64];
+		int   position3Bit[64*64];
+	*/
+	// Compute distance field.
+	float absPos = 0.0f;
+	for (int y=0; y < 64; y++) {
+		for (int x=0; x < 64; x++) {
+			int idx = (y<<6) + x;
+
+			float minDist = 999999999.0f;
+			for (int c = 0; c < equCount; c++) {
+				float ptx,pty;
+				float positionT;
+				float dist = equList[c].ComputeDistance((float)x,(float)y,ptx,pty,positionT);
+				if (minDist > dist) {
+					minDist = dist;
+					absPos  = equList[c].distancePartPosition + (positionT * equList[c].distancePart);
+				}
+			}
+
+			minDist += 1.0f;
+
+			// Make sure that square distance always grow : Best score is 64.
+			distanceField[idx] = (int)(((minDist * minDist)-1.0f)*1024.0f);
+
+			int idx5, idx4, idx3;
+
+			float closestT5 = 999999.0f;
+			float closestT4 = 999999.0f;
+			float closestT3 = 999999.0f;
+
+			int   closestT5Idx = -1;
+			int   closestT4Idx = -1;
+			int   closestT3Idx = -1;
+
+			for (int n=0; n < 64; n++) {
+				float diff = fabs(absPos - tFactor5Bit[n]);
+				if (diff < closestT5) {
+					closestT5    = diff;
+					closestT5Idx = n;
+				}
+			}
+
+			for (int n=0; n < 32; n++) {
+				float diff = fabs(absPos - tFactor4Bit[n]);
+				if (diff < closestT4) {
+					closestT4    = diff;
+					closestT4Idx = n;
+				}
+			}
+
+			for (int n=0; n < 16; n++) {
+				float diff = fabs(absPos - tFactor3Bit[n]);
+				if (diff < closestT3) {
+					closestT3    = diff;
+					closestT3Idx = n;
+				}
+			}
+
+			position3Bit[idx] = closestT3Idx;
+			position4Bit[idx] = closestT4Idx;
+			position5Bit[idx] = closestT5Idx;
+
+			printf("%i,",distanceField[(y<<6) + x]);
+		}
+		printf("\n");
+	}
+	printf("\n");
+}
+
+
+void EncoderContext::computeValues(int mode, int px,int py, float* mapX, float* mapY, int pixCnt, BoundingBox bb, EvalCtx& ev) {
+	bool outP;
+	int mx;
+	int my;
+	for (int y=0; y < 8; y++) {
+		for (int x=0; x < 8; x++) {
+
+			int CoV = workCo->GetPixelValue(px + x, py+y,outP);
+			int CgV = workCg->GetPixelValue(px + x, py+y,outP);
+
+			// Find coordinate in normalized box.
+			// ---------------------------------------------
+			// Normalize to
+			float relCo = CoV - bb.x;
+			float relCg = CgV - bb.y;
+			relCo /= bb.w - bb.x;
+			relCg /= bb.h - bb.y;
+
+			relCo *= 63.0f;
+			relCg *= 63.0f;
+
+			// Handle mode.
+			mx = (mode & 1) ? 63 - relCo : relCo;
+			my = (mode & 2) ? 63 - relCg : relCg;
+
+			if (mode & 4) {
+				int tmp = mx;
+				mx = my;
+				my = tmp;
+			}
+
+			// Lookup Map
+			int idx5Bit = ev.GetValue5Bit((int)mx,(int)my);
+			int idx4Bit = ev.GetValue4Bit((int)mx,(int)my);
+			int idx3Bit = ev.GetValue3Bit((int)mx,(int)my);
+
+			// Find Decompressed values for mapping (Verification without decoder)
+			// -------------------------------------------
+
+			// TODO : LUT Based on Rotation mode in decoder.
+			int xCoord5Bit = ev.xFactor5Bit[idx5Bit];
+			int yCoord5Bit = ev.yFactor5Bit[idx5Bit];
+
+			if (mode & 1) { xCoord5Bit = 255 - xCoord5Bit; }
+			if (mode & 2) { yCoord5Bit = 255 - yCoord5Bit; }
+			if (mode & 4) {
+				int tmp = xCoord5Bit;
+				xCoord5Bit = yCoord5Bit;
+				yCoord5Bit = tmp;
+			}
+
+			int xCoord4Bit = ev.xFactor4Bit[idx4Bit];
+			int yCoord4Bit = ev.yFactor4Bit[idx4Bit];
+			if (mode & 1) { xCoord4Bit = 255 - xCoord4Bit; }
+			if (mode & 2) { yCoord4Bit = 255 - yCoord4Bit; }
+			if (mode & 4) {
+				int tmp = xCoord4Bit;
+				xCoord4Bit = yCoord4Bit;
+				yCoord4Bit = tmp;
+			}
+
+			int xCoord3Bit = ev.xFactor3Bit[idx3Bit];
+			int yCoord3Bit = ev.yFactor3Bit[idx3Bit];
+			if (mode & 1) { xCoord3Bit = 255 - xCoord3Bit; }
+			if (mode & 2) { yCoord3Bit = 255 - yCoord3Bit; }
+			if (mode & 4) {
+				int tmp = xCoord3Bit;
+				xCoord3Bit = yCoord3Bit;
+				yCoord3Bit = tmp;
+			}
+
+			int Co5Bit     = bb.x + (xCoord5Bit*(bb.w-bb.x))/256; 
+			int Cg5Bit     = bb.y + (yCoord5Bit*(bb.h-bb.y))/256;
+
+			int Co4Bit     = bb.x + (xCoord4Bit*(bb.w-bb.x))/256; 
+			int Cg4Bit     = bb.y + (yCoord4Bit*(bb.h-bb.y))/256;
+
+			int Co3Bit     = bb.x + (xCoord3Bit*(bb.w-bb.x))/256; 
+			int Cg3Bit     = bb.y + (yCoord3Bit*(bb.h-bb.y))/256;
+
+			printf("Co[%i] -> %i, %i, %i   Cg[%i] -> %i, %i, %i\n",CoV,Co5Bit,Co4Bit,Co3Bit,CgV,Cg5Bit,Cg4Bit,Cg3Bit);
+		}
+	}
 }
 
 void EncoderContext::convert(const char* outputFile) {
@@ -3213,6 +3392,106 @@ void EncoderContext::convert(const char* outputFile) {
 		DynamicTileEncode(false,workCo, outCo,true, false, halfCoW,halfCoH);
 		DynamicTileEncode(true ,workCg, outCg,false, true, halfCgW,halfCgH);
 
+		Create2DCorrelationPatterns();
+		LinearEqu2D splDiag;
+		/*
+			X.......
+			.X......
+			..X.....
+			...X....
+			....X...
+			.....X..
+			......X.
+			.......X
+		 */
+ 		splDiag.Set(0.0f,0.0f,64.0f,64.0f);
+		correlationPattern[0].Set(12.0f, &splDiag, 1 ,128,  0,  0); // 20.0f
+
+		LinearEqu2D fig[2];
+//		fig[0].Set(0.0f,0.0f,48.0f,16.0f);
+//		fig[1].Set(48.0f,16.0f,64.0f,64.0f);
+		/*
+			XXXX....
+			....XXXX
+			.......X
+			......X.
+			.....X..
+			....X...
+			....X...
+			...X....
+		 */
+		fig[0].Set(0.0f,0.0f,64.0f,16.0f);
+		fig[1].Set(64.0f,16.0f,40.0f,64.0f);
+		correlationPattern[1].Set(1.0f, fig, 2 ,0 ,128,  0); // 35.0f
+
+		LinearEqu2D fig2[2];
+		/*
+			....XXXX
+			XXXX...X
+			.......X
+			.......X
+			......X.
+			......X.
+			......X.
+			......X.
+		 */
+		fig2[0].Set(0.0f,20.0f,64.0f,0.0f);
+		fig2[1].Set(64.0f,0.0f,56.0f,64.0f);
+		correlationPattern[2].Set(1.0f, fig2, 2 ,255 ,128,  0);
+
+		LinearEqu2D fig3[2];
+		/*
+			XX......
+			..XXX...
+			.....XX.
+			.......X
+			.......X
+			.......X
+			.......X
+			.......X
+		 */
+		fig3[0].Set(0.0f,0.0f,60.0f,32.0f);
+		fig3[1].Set(60.0f,32.0f,64.0f,64.0f);
+		correlationPattern[3].Set(12.0f, fig3, 2 ,0 ,0,  255);
+
+		LinearEqu2D fig4[2];
+		fig4[0].Set(0.0f,0.0f,64.0f,32.0f);
+		fig4[1].Set(0.0f,0.0f,32.0f,64.0f);
+		correlationPattern[4].Set(1.0f, fig4, 2 ,0 ,0,  128);
+
+
+		LinearEqu2D splDiag2[2];
+		/*
+			X.......
+			.X......
+			..X.....
+			...X....
+			....X...
+			.....X..
+			......X.
+			...XXXXX
+		 */
+ 		splDiag2[0].Set(0.0f,0.0f,64.0f,64.0f);
+ 		splDiag2[1].Set(64.0f,64.0f,48.0f,64.0f);
+		correlationPattern[5].Set(12.0f, splDiag2, 2 ,128,  0,  128); // 20.0f
+
+		/*
+		LinearEqu2D splOppDiag;
+		splOppDiag.Set(64.0f,0.0f, 0.0f,64.0f);
+		correlationPattern[1].Set(20.0f, &splOppDiag, 1 ,0, 128,  0);
+		*/
+
+		/*
+		spl.Set(64.0,0.0,    32.0,32.0,    0.0,64.0);
+		BuildDistanceField(&spl,1,linearOppTable);
+		spl.Set(0.0,0.0,    75.0,48.0,    20.0,64.0);
+		BuildDistanceField(&spl,1,Spline1Table);
+		*/
+		correlationPatternCount = 6;
+
+
+
+
 		int bx = 0;
 		int by = 0;
 		int tsize = 8;
@@ -3220,34 +3499,8 @@ void EncoderContext::convert(const char* outputFile) {
 		BoundingBox bb;
 		bool isIsFirst = true;
 
-		int linearTable		[64*64];
-		int linearOppTable	[64*64];
-		int Spline1Table	[64*64];
-		int tileCnt = 0;
-
-		QuadSpline spl;
- 		spl.Set(0.0,0.0,    32.0,32.0,    64.0,64.0);
-		BuildTable(&spl,1,linearTable);
-
-
-		spl.Set(64.0,0.0,    32.0,32.0,    0.0,64.0);
-		BuildTable(&spl,1,linearOppTable);
-
-		spl.Set(0.0,0.0,    75.0,48.0,    20.0,64.0);
-		BuildTable(&spl,1,Spline1Table);
-
-		EvalCtx linearEval   (40.0f, linearTable,255,0,0);
-		EvalCtx linearOppEval(40.0f, linearOppTable,0,255,0);
-		EvalCtx Spline1      (40.0f, Spline1Table,255,128,0);
-
-		EvalCtx* evaluators[3];
-		evaluators[0] = &linearEval;
-		evaluators[1] = &linearOppEval;
-		evaluators[2] = &Spline1;
-
-		int      evaluatorsCount = 2;
-
 		u8* renderBuffer = new u8[64*64*3];
+		int tileCnt = 0;
 
 		for (int py = 0; py < workCo->GetHeight(); py += tsize) {
 			for (int px = 0; px < workCg->GetWidth(); px += tsize) {
@@ -3297,19 +3550,20 @@ void EncoderContext::convert(const char* outputFile) {
 					// - Can we fit on a spline ?
 					// - Can we fit on a triangle ? (PCA like)
 
-					// Normalization 1.0 fixed 22 bit.
-					float line1Prox    = 0.0f;
-					float line1OppProx = 0.0f;
-
-
 					bool isOutside;
+
+					float mapX[64];
+					float mapY[64];
+
 					if (smoothMap->GetPixelValue(px,py,isOutside)==0) {
 
 						memset(renderBuffer,0,64*64*3);
 
-						for (int e=0;e<evaluatorsCount; e++) {
-							evaluators[e]->EvaluateStart();
+						for (int e=0;e<correlationPatternCount; e++) {
+							correlationPattern[e].EvaluateStart();
 						}
+
+						int pixCnt = 0;
 
 						for (int y=py; y < py+tsize; y++) {
 							for (int x=px; x < px+tsize; x++) {
@@ -3327,12 +3581,15 @@ void EncoderContext::convert(const char* outputFile) {
 								float fa = a/div;
 								float fb = b/div;
 
+								mapX[pixCnt] = fa;
+								mapY[pixCnt] = fb;
+
 								int ia64 = ((int)(fa*63));
 								int ib64 = ((int)(fb*63));
 
 								// printf("%f,%f\n",fa,fb);
-								for (int e=0;e<evaluatorsCount; e++) {
-									evaluators[e]->EvaluatePoint(ia64,ib64);
+								for (int e=0;e<correlationPatternCount; e++) {
+									correlationPattern[e].EvaluatePoint(ia64,ib64);
 								}
 
 
@@ -3340,15 +3597,6 @@ void EncoderContext::convert(const char* outputFile) {
 								renderBuffer[idx    ] = 255;
 								renderBuffer[idx + 1] = 255;
 								renderBuffer[idx + 2] = 255;
-
-								/*
-									TODO : Generate a 128x128 Plot
-									Save as PNG [x,y_size.png] + Log printf score associated.
-								*/
-
-
-								line1Prox    += powf(1.0f+fabsf(fa-fb),3.0f);
-								line1OppProx += powf(1.0f+fabsf((fa+fb)-1.0f),3.0f);	// The worst the outlier, the huge impact on scoring.
 							}
 						}
 
@@ -3370,25 +3618,52 @@ void EncoderContext::convert(const char* outputFile) {
 							isMarkedLinear = true;
 						}
 						*/
-						for (int e=0;e<evaluatorsCount; e++) {
+
+						EvalCtx* evMin = &correlationPattern[0];
+						float minScore = 999999999.0f;
+						float fStdDev;
+						bool found = false;
+						int foundE = -1;
+						int foundM = -1;
+						for (int e=0;e<correlationPatternCount; e++) {
 							float score;
 							float stdDev;
-							evaluators[e]->GetEvaluation(score, stdDev);
-							if (evaluators[e]->acceptScore >= score) {
-								for (int n=0; n < 64*64*3; n+=3) {
-									if (evaluators[e]->color[0]) { renderBuffer[n  ] = evaluators[e]->color[0]; }
-									if (evaluators[e]->color[1]) { renderBuffer[n+1] = evaluators[e]->color[1]; }
-									if (evaluators[e]->color[2]) { renderBuffer[n+2] = evaluators[e]->color[2]; }
+							EvalCtx& ev = correlationPattern[e];
+							int mode = ev.GetEvaluation(score, stdDev);
+							bool accept = false;
+							if (score <= ev.acceptScore) {
+								if (minScore > score) {
+									minScore = score;
+									fStdDev	 = stdDev;
+									evMin    = &ev;
+									found    = true;
+									accept   = true;
+									foundE   = e;
+									foundM   = mode;
+
+									computeValues(mode, px,py,mapX,mapY,pixCnt,bb,ev);
 								}
-								isMarkedLinear = true;
-								break;
 							}
-							printf("%f, %f %s\n",score,stdDev,isMarkedLinear ? "Yes" : "");
+							printf("[%i] Score %f @%i - ",tileCnt, score, e);
+						}
+						printf("\n");
+
+						if (found) {
+							printf("[%i] Mode %i Score %f,%f @%i %s\n",tileCnt,foundM, minScore,fStdDev,foundE, found ? "USE" : "");
+
+							for (int n=0; n < 64*64*3; n+=3) {
+								if (evMin->color[0]) { renderBuffer[n  ] = evMin->color[0]; }
+								if (evMin->color[1]) { renderBuffer[n+1] = evMin->color[1]; }
+								if (evMin->color[2]) { renderBuffer[n+2] = evMin->color[2]; }
+							}
 						}
 
 						int err = stbi_write_png(buffer, 64, 64, 3, renderBuffer, 64*3);
-						printf("%i -> %f,%f\n",tileCnt,line1Prox,line1OppProx);
+//						printf("Tile %i Written\n",tileCnt);
 
+						if (tileCnt == 67) {
+							printf("found");
+						}
 					} else {
 						// printf("Skip tile %i\n",tileCnt);
 					}
