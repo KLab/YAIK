@@ -112,7 +112,8 @@ struct AbstractSegment {
 		return pieceLength;
 	}
 
-	virtual float ComputeDistance(float x, float y, float& xClosest, float& yClosest, float& tLocal) = 0;
+	virtual float ComputeDistance2D(float x, float y, float& xClosest, float& yClosest, float& tLocal) = 0;
+	virtual float ComputeDistance3D(float x, float y, float z, float& xClosest, float& yClosest, float& zClosest, float& tLocal) = 0;
 };
 
 struct LinearEqu2D : public AbstractSegment {
@@ -137,7 +138,7 @@ struct LinearEqu2D : public AbstractSegment {
 	float distancePartPosition;
 	float distancePart;
 
-	float ComputeDistance(float x, float y, float& xClosest, float& yClosest, float& tLocal) {
+	float ComputeDistance2D(float x, float y, float& xClosest, float& yClosest, float& tLocal) {
 		float U;
 		float xIntersection,yIntersection;
  
@@ -165,7 +166,85 @@ struct LinearEqu2D : public AbstractSegment {
 		equ.Set(x,y,xIntersection,yIntersection);
 		return equ.pieceLength;
 	}
+
+	float ComputeDistance3D(float x, float y, float z, float& xClosest, float& yClosest, float& zClosest, float& tLocal) {
+		// Return fake value to make sure evaluator notice...
+		tLocal			= -99999.0f;
+		xClosest		= -99999.0f;
+		yClosest		= -99999.0f;
+		zClosest		= -99999.0f;
+	}
 };
+
+struct LinearEqu3D : public AbstractSegment {
+	float x0; // Included
+	float y0;
+	float z0;
+	float x1; // Excluded, except last segment.
+	float y1; // Excluded
+	float z1;
+
+	float dx;
+	float dy;
+	float dz;
+
+	void Set(float x0, float y0, float z0, float x1, float y1, float z1) {
+		this->x0 = x0;
+		this->y0 = y0;
+		this->z0 = z0;
+		this->x1 = x1;
+		this->y1 = y1;
+		this->x1 = x1;
+		this->z1 = z1;
+
+		dx = x1-x0;
+		dy = y1-y0;
+		dz = z1-z0;
+		pieceLength = sqrtf(dx*dx + dy*dy + dz*dz);
+	}
+
+	float distancePartPosition;
+	float distancePart;
+
+
+	float ComputeDistance2D(float x, float y, float& xClosest, float& yClosest, float& tLocal) {
+		// Return fake value to make sure evaluator notice...
+		tLocal			= -99999.0f;
+		xClosest		= -99999.0f;
+		yClosest		= -99999.0f;
+		return tLocal;
+	}
+
+	float ComputeDistance3D(float x, float y, float z, float& xClosest, float& yClosest, float& zClosest, float& tLocal) {
+		float U;
+		float xIntersection,yIntersection,zIntersection;
+ 
+		U = ( ( ( x - x0 ) * ( dx ) ) +
+			(   ( y - y0 ) * ( dy ) ) +
+			(   ( z - z0 ) * ( dz ) )
+			) / ( pieceLength * pieceLength );
+
+		tLocal = U;
+
+		if (U < 0.0f) { U = 0.0f; }
+		if (U > 1.0f) { U = 1.0f; }
+
+		/*
+		if( U < 0.0f || U > 1.0f ) {
+				// closest point does not fall within the line segment
+		}
+		*/
+
+		xIntersection = x0 + U * dx;
+		yIntersection = y0 + U * dy;
+		zIntersection = z0 + U * dz;
+
+		LinearEqu3D equ;
+		equ.Set(x,y,z,xIntersection,yIntersection,zIntersection);
+		return equ.pieceLength;
+	}
+};
+
 
 /*
 struct QuadSpline : public AbstractSegment {

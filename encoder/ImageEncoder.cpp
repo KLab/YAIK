@@ -17,11 +17,11 @@ int main(int argCnt, const char** args)
 
 	EncoderContext& ctx  = *pCtx;
 	// ---- Setup ----
-	ctx.halfCoW = false;
+	ctx.halfCoW = true;
 	ctx.halfCoH = false;
 	ctx.downSampleCo = EDownSample::AVERAGE_BOX;
 
-	ctx.halfCgW = false;
+	ctx.halfCgW = true;
 	ctx.halfCgH = false;
 	ctx.downSampleCg = EDownSample::AVERAGE_BOX;
 
