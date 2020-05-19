@@ -139,13 +139,14 @@ protected:
 
 	void StartCorrelationSearch3D();
 	void EndCorrelationSearch3D();
-	void Correlation3DSearch(Image* input, Image* output, int tileSize);
+	void Correlation3DSearch(Image* input, Image* output, int tileSizeX, int tileSizeY);
 
 	int	DynamicTileEncode	(bool mode3BitOnly, Plane* plane, Plane* dst, bool isCo, bool isCg, bool isHalfX, bool isHalfY);	// Return bitcount.
 	int DynamicTileEncodeCoCg(Plane* source, Plane* Target, Plane* targetCode);
 
 	void ResampleUpCoCg		(const char* optionalRawSave = NULL);
 
+	void AnalyzeColorCount(Image* input, int tileSize);
 
 	struct EvalCtx {
 		EvalCtx() {}
@@ -357,9 +358,9 @@ protected:
 			return res;
 		}
 
-		u8 value5Bit[8*8];
-		u8 value4Bit[8*8];
-		u8 value3Bit[8*8];
+		u8 value5Bit[8*8*2];
+		u8 value4Bit[8*8*2];
+		u8 value3Bit[8*8*2];
 
 	private:
 		void BuildDistanceField2D();
@@ -379,7 +380,7 @@ protected:
 
 
 	Mode computeValues2D(int flipMode, int px,int py, float* mapX, float* mapY, int pixCnt, BoundingBox bb, EvalCtx& ev, int& minSumErrDiff);
-	Mode computeValues3D(int tileSize, u64 mask, int flipMode, Image* input,int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minSumErrDiff, int* tile5B, int* tile4B, int* tile3B);
+	Mode computeValues3D(int tileSizeX, int tileSizeY, u64* mask, int flipMode, Image* input,int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minSumErrDiff, int* tile5B, int* tile4B, int* tile3B);
 
 
 public:

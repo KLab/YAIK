@@ -72,23 +72,25 @@ void YCoCgtoRGB(int Y, int Co, int Cg, int& oR, int& oG,int& oB) {
 }
 
 
-BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsize, int& pixelInTile, u64* pMask) {
+BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsizeX, int tsizeY, int& pixelInTile, u64* pMask) {
 	bool isOutSide;
 	bool isIsFirst = true;
 	BoundingBox3D bb3;
-	u64 maskRes = -1;
+	u64 maskRes[2];
+	maskRes[0] = -1;
+	maskRes[1] = -1;
 
 	int pixelCount = 0;
 
-	for (int y=py; y < py+tsize; y++) {
-		for (int x=px; x < px+tsize; x++) {
+	for (int y=0; y < tsizeY; y++) {
+		for (int x=0; x < tsizeX; x++) {
 			// Skip scanning.
 			int rgb[3];
-			pFilter->GetPixel(x,y,rgb,isOutSide);
+			pFilter->GetPixel(x+px,y+py,rgb,isOutSide);
 			if (rgb[0]==255 && rgb[1]==255 && rgb[2]==255) { continue; }
 
 			pixelCount++;
-			p->GetPixel(x,y,rgb,isOutSide);
+			p->GetPixel(x+px,y+py,rgb,isOutSide);
 
 			if (isIsFirst) {
 				bb3.x0 = rgb[0];
@@ -111,7 +113,9 @@ BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsize, i
 				if (rgb[2] < bb3.z0) { bb3.z0 = rgb[2]; }
 				if (rgb[2] > bb3.z1) { bb3.z1 = rgb[2]; }
 			}
-			maskRes &= ~(1ULL<<((x-px)+((y-py)*tsize))); 
+
+			int idx = (x+(y*tsizeX));
+			maskRes[idx >> 6] &= ~(1ULL<<(idx & 0x3F));
 		}
 	}
 
@@ -121,7 +125,8 @@ BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsize, i
 		bb3.z0 = -1; bb3.z1 = -1;
 	}
 
-	*pMask = maskRes;
+	pMask[0] = maskRes[0];
+	pMask[1] = maskRes[1];
 
 	pixelInTile = pixelCount;
 
@@ -2790,9 +2795,9 @@ void EncoderContext::DumpTileRGB() {
 	for (int y=0; y < original->GetHeight(); y += tileSize) {
 		for (int x=0; x < original->GetWidth(); x += tileSize) {
 			// If tile is available...
-			bool allowA = mapSmoothTile->GetPlane(0)->GetPixelValue(x,y,isOutside) == 0;
-			bool allowB = mapSmoothTile->GetPlane(1)->GetPixelValue(x,y,isOutside) == 0;
-			bool allowC = mapSmoothTile->GetPlane(2)->GetPixelValue(x,y,isOutside) == 0;
+			bool allowA = true;//mapSmoothTile->GetPlane(0)->GetPixelValue(x,y,isOutside) == 0;
+			bool allowB = true;//mapSmoothTile->GetPlane(1)->GetPixelValue(x,y,isOutside) == 0;
+			bool allowC = true;//mapSmoothTile->GetPlane(2)->GetPixelValue(x,y,isOutside) == 0;
 
 			if (allowA && allowB && allowC) {
 				// 1. Extract 64 Color palette.
@@ -2828,9 +2833,12 @@ void EncoderContext::DumpTileRGB() {
 				*/
 //				sortPalette(position,pixelPalette);
 
-				u64 tileMask;
+				u64 tileMask[2];
+				tileMask[1] = -1;
 				int pixelInTile;
-				BoundingBox3D bb3 = buildBBox3D(original,mapSmoothTile,x,y,tileSize,pixelInTile,&tileMask);
+				BoundingBox3D bb3 = buildBBox3D(original,mapSmoothTile,x,y,tileSize,tileSize,pixelInTile,tileMask);
+
+				if (pixelInTile == 0) { tileCnt++; continue; }
 
 				// Export normalized values...
 				int dX = bb3.x1 - bb3.x0;
@@ -2859,6 +2867,9 @@ void EncoderContext::DumpTileRGB() {
 				for (int yp=0; yp < tileSize; yp++) {
 					for (int xp=0; xp < tileSize; xp++) {
 						int rgb[3];
+						int idxM = (xp+(yp*tileSize));
+						if (tileMask[idxM>>6] & (1ULL<<(idxM & 0x3F))) { continue; }
+
 						original->GetPixel(x+xp,y+yp,rgb,isOutside);
 						int r = rgb[0]>>2;
 						int g = rgb[1]>>2;
@@ -2887,7 +2898,13 @@ void EncoderContext::DumpTileRGB() {
 						assert(ib64 >= 0 && ib64 <= 255);
 
 
-						fprintf(fXYZ,"%i,%i,%i,%i,%i,%i\n",ir64,ig64,ib64,rgb[0],rgb[1],rgb[2]);
+						for (int yo=-1;yo < 2; yo++) {
+							for (int xo=-1;xo < 2; xo++) {
+								for (int zo=-1;zo < 2; zo++) {
+									fprintf(fXYZ,"%i,%i,%i,%i,%i,%i\n",ir64+xo,ig64+yo,ib64+zo,rgb[0],rgb[1],rgb[2]);
+								}
+							}
+						}
 
 						int idx = ((r+b) + ((g+b)*128))*3;
 						map[idx  ] = rgb[0];
@@ -3995,7 +4012,7 @@ void swap3D(int mode, int& x,int& y,int& z) {
 	}
 }
 
-EncoderContext::Mode EncoderContext::computeValues3D(int tileSize, u64 mask, int mode, Image* input, int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minDiff, int* tile5B, int* tile4B, int* tile3B) {
+EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSizeY, u64* mask, int mode, Image* input, int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minDiff, int* tile5B, int* tile4B, int* tile3B) {
 	bool outP;
 	int mx,my,mz;
 
@@ -4016,11 +4033,11 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSize, u64 mask, int
 
 	int streamIdx = 0;
 
-	for (int y=0; y < tileSize; y++) {
-		for (int x=0; x < tileSize; x++) {
-			int idxPix = x + y*tileSize;
+	for (int y=0; y < tileSizeY; y++) {
+		for (int x=0; x < tileSizeX; x++) {
+			int idxPix = x + y*tileSizeX;
 
-			if (mask & (1ULL<<idxPix)) { continue; }
+			if (mask[idxPix>>6] & (1ULL<<idxPix)) { continue; }
 
 			int rgb[3]; input->GetPixel(px + x, py + y,rgb, outP);
 
@@ -4104,7 +4121,7 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSize, u64 mask, int
 			int diff3BitB	= abs(b3Bit - rgb[2]);
 
 
-			assert(idxPix < 64);
+			assert(idxPix < 128);
 
 			int idxPixRGB = idxPix * 3;
 			// Export encoder result.
@@ -4132,9 +4149,15 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSize, u64 mask, int
 			absErr4Bit += lDiff4Bit;
 			absErr3Bit += lDiff3Bit;
 
-			if (lDiff5Bit > 4) { reject5Bit = true; }
-			if (lDiff4Bit > 4) { reject4Bit = true; }
-			if (lDiff3Bit > 4) { reject3Bit = true; }
+			//
+			// Per pixel different is max > 4, after that, start to notice artifacts...
+			//                        max > 5 or 6 can be tolerated AT the condition that we measure the COMPLETE DIFFERENCE OF THE TILE and avoid if too much change.
+			// For now, allow 'some artifact' but limit is 5. NO MORE !!!!
+			//
+
+			if (lDiff5Bit > 5) { reject5Bit = true; }
+			if (lDiff4Bit > 5) { reject4Bit = true; }
+			if (lDiff3Bit > 5) { reject3Bit = true; }
 
 			ev.value5Bit[streamIdx] = idx5Bit;
 			ev.value4Bit[streamIdx] = idx4Bit;
@@ -4152,19 +4175,119 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSize, u64 mask, int
 	return Mode::SKIP_TOO_LOSSY;
 }
 
-void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSize) {
+void EncoderContext::AnalyzeColorCount(Image* input, int tileSize) {
+
+	return ;
+
+	int rgb[3];
+	int rgbUnique[3*64];
+	bool isOutSide;
+	int tileCnt = 0;
+
+	for (int py = 0; py < input->GetHeight(); py += tileSize) {
+		for (int px = 0; px < input->GetWidth(); px += tileSize) {
+
+			int unique = 0;
+
+			for (int y=0; y < tileSize; y++) {
+				for (int x=0; x < tileSize; x++) {
+					input->GetPixel(x+px,y+py,rgb,isOutSide);
+					rgb[0] >>= 2;
+					rgb[1] >>= 2;
+					rgb[2] >>= 2;
+
+					bool found = false;
+
+					for (int n=0; n < unique*3; n+=3) {
+						if ((rgbUnique[n] == rgb[0]) && (rgbUnique[n+1] == rgb[1]) && (rgbUnique[n+2] == rgb[2])) {
+							found = true;
+						}
+					}
+
+					if (!found) {
+						rgbUnique[unique*3  ] = rgb[0];
+						rgbUnique[unique*3+1] = rgb[1];
+						rgbUnique[unique*3+2] = rgb[2];
+						unique++;
+					}
+				}
+			}
+
+			printf("Tile %i => %i\n",tileCnt,unique);
+
+			if (unique < 12) {
+				if (unique <= 8) {
+					if ((unique <= 4) && (unique > 1)) {
+						// 4
+						for (int y=0; y < tileSize; y++) {
+							for (int x=0; x < tileSize; x++) {
+								input->GetPlane(2)->SetPixel(x+px,y+py,0);
+							}
+						}
+					} else {
+						if (unique == 1) {
+							// Ignore
+						} else {
+							// 8
+							for (int y=0; y < tileSize; y++) {
+								for (int x=0; x < tileSize; x++) {
+									input->GetPlane(1)->SetPixel(x+px,y+py,0);
+								}
+							}
+						}
+					}
+				} else {
+					// 12 max
+					for (int y=0; y < tileSize; y++) {
+						for (int x=0; x < tileSize; x++) {
+							input->GetPlane(0)->SetPixel(x+px,y+py,0);
+						}
+					}
+				}
+			} else {
+				if (unique < 16) {
+					for (int y=0; y < tileSize; y++) {
+						for (int x=0; x < tileSize; x++) {
+							input->GetPlane(0)->SetPixel(x+px,y+py,0);
+							input->GetPlane(2)->SetPixel(x+px,y+py,0);
+						}
+					}
+				}
+			}
+
+			tileCnt++;
+		}
+	}
+
+	original->SavePNG("PALETTE.png",NULL);
+}
+
+void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSizeX, int tileSizeY) {
 	BoundingBox3D bb3;
 	bool isOutSide;
 	int tileCnt = 0;
 	int matchTile = 0;
 
-	for (int py = 0; py < input->GetHeight(); py += tileSize) {
-		for (int px = 0; px < input->GetWidth(); px += tileSize) {
+	if ((tileSizeX > 16) || (tileSizeY > 16)) {
+		assert(false); // Can not support yet.
+	}
 
-			u64 maskTile = 0;
+	if ((tileSizeX == 16) && (tileSizeY > 8)) {
+		assert(false); // Can not support yet.
+	}
+
+	if ((tileSizeY == 16) && (tileSizeX > 8)) {
+		assert(false); // Can not support yet.
+	}
+
+	for (int py = 0; py < input->GetHeight(); py += tileSizeY) {
+		for (int px = 0; px < input->GetWidth(); px += tileSizeX) {
+
+			u64 maskTile[2];
+			maskTile[1] = -1; // Tile 8x16 / 16x8 reset default.
 			int pixelsInTile;
 			// For all tiles.
-			bb3 = buildBBox3D(input,mapSmoothTile,px,py,tileSize,pixelsInTile,&maskTile);
+			bb3 = buildBBox3D(input,mapSmoothTile,px,py,tileSizeX,tileSizeY,pixelsInTile,maskTile);
 
 			// 3D encoded in 3D -> OK
 			// 2D encoded in 3D -> OK = Equivalent 1 Planar + 2 Correlated
@@ -4200,7 +4323,7 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 				float mapZ[64];
 				*/
 
-				if (maskTile != 0xFFFFFFFFFFFFFFULL
+				if ((maskTile[0] != 0xFFFFFFFFFFFFFFULL) || (maskTile[1] != 0xFFFFFFFFFFFFFFULL)
 //					maskTile == 0
 					) { // We don't check the map here, because there could be quarter block (4x4), instead we check pixel by pixel.
 					bool isIsFirst = true;
@@ -4219,12 +4342,12 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 
 //					int pixCnt = 0;
 
-					for (int y=0; y < tileSize; y++) {
-						for (int x=0; x < tileSize; x++) {
-							int idx = x + (y*tileSize);
+					for (int y=0; y < tileSizeY; y++) {
+						for (int x=0; x < tileSizeX; x++) {
+							int idx = x + (y*tileSizeX);
 
 							// Ignore pixel already processed.
-							if (maskTile & (1ULL<<idx)) { continue; }
+							if (maskTile[idx>>6] & (1ULL<<(idx & 0x3F))) { continue; }
 
 							int rgb[3];
 							input->GetPixel(x+px,y+py,rgb,isOutSide);
@@ -4276,9 +4399,9 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 					int bestSize = 0;
 					EncoderContext::Mode bitMode;
 
-					int rgbOut5[64*3];
-					int rgbOut4[64*3];
-					int rgbOut3[64*3];
+					int rgbOut5[128*3];
+					int rgbOut4[128*3];
+					int rgbOut3[128*3];
 
 					for (int e=0;e<correlationPatternCount; e++) {
 						float score;
@@ -4288,7 +4411,7 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 						int diffSumL = 0;
 
 						// Compute Channel values AND return valid mode if ERROR < 3 in ALL Component for each SINGLE pixels. (no average)
-						EncoderContext::Mode m = computeValues3D(tileSize,maskTile, mode48,input,px,py,bb3,ev,diffSumL,rgbOut5,rgbOut4,rgbOut3);
+						EncoderContext::Mode m = computeValues3D(tileSizeX,tileSizeY,maskTile, mode48,input,px,py,bb3,ev,diffSumL,rgbOut5,rgbOut4,rgbOut3);
 						int fileCost = (4+3) + 32;
 						int* src = NULL;
 						int bit = 0;
@@ -4317,7 +4440,7 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 
 
 								// TODO : Copy to output buffer.
-								printf("3D MATCH [%i bit] [Type %i]: %i (%llx)\n",bit,foundE,tileCnt,maskTile);
+								printf("3D MATCH [%i bit] [Type %i]: %i (%llx)\n",bit,foundE,tileCnt,maskTile[0]);
 
 								/*
 								u8 rgbD[8*8*3];
@@ -4325,9 +4448,10 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 								int err = stbi_write_png(buffer, 8, 8, 3, rgbD, 8*3);
 								*/
 
-								for (int y=0; y < tileSize; y++) {
-									for (int x=0; x < tileSize; x++) {
-										if ((maskTile & (1ULL<<(x+(y*tileSize))))) { src+=3; continue; }
+								for (int y=0; y < tileSizeY; y++) {
+									for (int x=0; x < tileSizeX; x++) {
+										int idx = (x+(y*tileSizeX));
+										if ((maskTile[idx>>6] & (1ULL<<(idx&0x3F)))) { src+=3; continue; }
 
 										output->SetPixel(px+x,py+y,src[0],src[1],src[2]);
 										src += 3;
@@ -4355,12 +4479,17 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 						corr3D_colorStream[streamColorCnt++] = bb3.z1;
 
 						// Bitmap stream...
-						if (tileSize == 8) {
+						if (tileSizeX == 8 && tileSizeY == 8) {
 							corr3D_sizeT8Map[tileCnt>>3] |= 1<<(tileCnt&7);
 						} else {
-							corr3D_sizeT4Map[tileCnt>>3] |= 1<<(tileCnt&7);
+
+							// TODO : tileSizeX only 8 or tileY only 8
+							if ((tileSizeX == 4) && (tileSizeY == 4)) {
+								corr3D_sizeT4Map[tileCnt>>3] |= 1<<(tileCnt&7);
+							}
 						}
 
+						// TODO : Tile Size into tile (8x8/4x4/8x4/4x8/16x8/16x8)
 						corr3D_tileStreamTileType[streamTypeCnt++] = foundM48 | (bitMode<<6) | (foundE<<8); // Bit [0..5] : 48 3D Pattern, Bit [6..7] : 3/4/5 Bit Tile ?, Bit [8..15] : Pattern ?
 
 						switch (bitMode) {
@@ -4381,8 +4510,8 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 						//
 						// Remove Tile from usable tiles...
 						//
-						for (int y=0; y < tileSize; y++) {
-							for (int x=0; x < tileSize; x++) {
+						for (int y=0; y < tileSizeY; y++) {
+							for (int x=0; x < tileSizeX; x++) {
 								mapSmoothTile->SetPixel(x + px, y + py, 255,255,255);
 							}
 						}
@@ -4446,12 +4575,32 @@ void EncoderContext::EndCorrelationSearch3D() {
 
 	size_t result;
 	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT8Map,sizeT8Map, 18);
+	printf("T8 Map : %i\n",(int)result);
 	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT4Map,sizeT4Map, 18);
+	printf("T4 Map : %i\n",(int)result);
 	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream3Bit,stream3BitCnt, 18);
+	printf("Stream 3Bit : %i\n",(int)result);
+
 	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream4Bit,stream4BitCnt, 18);
+	printf("Stream 4Bit : %i\n",(int)result);
+
+	u8* stupidCompress = new u8[stream3BitCnt+1];
+	for (int n=0; n < stream3BitCnt; n++) {
+		if (n & 1) {
+			stupidCompress[n>>1] |= (corr3D_stream3Bit[n]<<4);
+		} else {
+			stupidCompress[n>>1] = corr3D_stream3Bit[n];
+		}
+	}
+	result = ZSTD_compress(pZStdStream, sizeZStd, stupidCompress,stream3BitCnt>>1, 18);
+	printf("Stream 4Bit Packed : %i\n",(int)result);
+
 	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream5Bit,stream5BitCnt, 18);
+	printf("Stream 5Bit : %i\n",(int)result);
 	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_colorStream ,streamColorCnt, 18);
+	printf("Stream Color : %i\n",(int)result);
 	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_tileStreamTileType ,streamTypeCnt*sizeof(u16), 18);
+	printf("Stream Tile : %i\n",(int)result);
 	
 	delete [] corr3D_stream5Bit;
 	delete [] corr3D_stream4Bit;
@@ -4561,14 +4710,46 @@ void EncoderContext::convert(const char* outputFile) {
 		equerre[1].Set(64.0f,64.0f,0.0f,64.0f,64.0f,64.0f);
 		correlationPattern[1].Set3D(350.0f, equerre, 2, 0,255,0 );
 
-		correlationPatternCount = 2;
+		LinearEqu3D Pattern2[2];
+		Pattern2[0].Set(64.0f,0.0f,0.0f  , 5.0f, 45.0f, 5.0f);
+		Pattern2[1].Set(5.0f, 45.0f, 5.0f,32.0f, 64.0f,64.0f);
+		correlationPattern[2].Set3D(350.0f, Pattern2, 2, 0,255,0 );
+
+		LinearEqu3D Pattern3[2];
+		Pattern3[0].Set(64.0f,0.0f,0.0f  , 5.0f, 45.0f, 5.0f);
+		Pattern3[1].Set(5.0f, 45.0f, 5.0f,32.0f,  0.0f,64.0f);
+		correlationPattern[3].Set3D(350.0f, Pattern3, 2, 0,255,0 );
+
+		LinearEqu3D Pattern4[3];
+		Pattern4[0].Set(2.0f  ,2.0f, 2.0f,30.0f,30.0f,0.0f);
+		Pattern4[1].Set(32.0f,32.0f,0.0f,32.0f,32.0f,62.0f);
+		Pattern4[2].Set(32.0f, 32.0f, 64.0f,64.0f,64.0f,64.0f);
+		correlationPattern[4].Set3D(350.0f, Pattern4, 3, 0,255,0 );
+
+		correlationPatternCount = 5;
 
 		// DumpTileRGB();
+		AnalyzeColorCount(original,8);
+
 		StartCorrelationSearch3D();
-		Correlation3DSearch(original, output,8); // Test in RGB Space.
+		Correlation3DSearch(original, output,16,8); // Test in RGB Space.
 		output->SavePNG("Post3DTile.png",NULL);
-		Correlation3DSearch(original, output,4); // Test in RGB Space.
+
+		Correlation3DSearch(original, output,8,16); // Test in RGB Space.
 		output->SavePNG("Post3DTile.png",NULL);
+
+		Correlation3DSearch(original, output,8,8); // Test in RGB Space.
+		output->SavePNG("Post3DTile.png",NULL);
+
+		Correlation3DSearch(original, output,8,4); // Test in RGB Space.
+		output->SavePNG("Post3DTile.png",NULL);
+
+		Correlation3DSearch(original, output,4,8); // Test in RGB Space.
+		output->SavePNG("Post3DTile.png",NULL);
+
+		Correlation3DSearch(original, output,4,4); // Test in RGB Space.
+		output->SavePNG("Post3DTile.png",NULL);
+
 		EndCorrelationSearch3D(); // Header will be both 8 and 4 pixel tile stream...
 	//	Correlation3DSearch(YCoCgImg, output); // Test in YCoCb Space.
 
