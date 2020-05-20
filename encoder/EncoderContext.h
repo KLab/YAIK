@@ -80,6 +80,7 @@ public:
 	void Release			();
 
 protected:
+	int    fileOutSize;
 	Image* original;
 	Image* YCoCgImg;
 
@@ -108,7 +109,7 @@ protected:
 	void CheckMipmapMask	();
 	void PrepareQuadSmooth	();
 	void DumpTileRGB		();
-	int  FittingQuadSmooth	(int rejectFactor, Plane* a, Plane* b, Plane* c,Image* testOutput, bool useYCoCg, int tileBitSize);
+	int  FittingQuadSmooth	(int rejectFactor, Plane* a, Plane* b, Plane* c,Image* testOutput, bool useYCoCg, int tileBitSizeX, int tileBitSizeY);
 
 	// In order...
 	void MipPrefilter		(bool active);
@@ -137,6 +138,7 @@ protected:
 	int streamColorCnt;
 	int streamTypeCnt;
 
+	void RegisterAndCreate3DLut();
 	void StartCorrelationSearch3D();
 	void EndCorrelationSearch3D();
 	void Correlation3DSearch(Image* input, Image* output, int tileSizeX, int tileSizeY);

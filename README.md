@@ -88,11 +88,109 @@ A Visual Studio 2019 project is available inside encoder\vc_prj. Should build an
 # Encoding techniques
 
 Some techniques have been implemented and failed. The source is still inside the project but will not be introduced.
+First, the goal will be to process heavier and heavier compression technique in order.
+We must compress as much as possible pixels as we can 'easily' ( = smallest bpp ).
+When it is not possible anymore then switch to another technique.
 
-## Tile gradient
+They MUST FOLLOW THE ORDER as described here, to be the most efficient in term of compression and do not annoy each other.
 
-Analyze the image and find tile of 4x4 and 8x8 of RGB gradients. (PrepareQuadSmooth, FittingQuadSmooth functions)
+## First Technique : Tile RGB gradient
 
+Analyze the image and find tile of 16x16,8x16,16x8,8x8,4x8,8x4 and finally 4x4 tile of RGB gradients. (PrepareQuadSmooth, FittingQuadSmooth functions)
+We do it in descending order to maximize the cover surface at the cheapest cost first, then increase the cost per pixel (bit per pixel).
+Gradient analysis perform a very efficient encoding scheme :
+- It maps correlation between the full 3 plane (RGB).
+- It cost only a single color per tile in average ( + pixel on the borders )
+- By using bigger tile first, we reduce the amount of pixel stream.
+
+Each tile found is removed from the list of tile to process.
+
+## Second Technique : 3D LUT
+
+Same as the first technique, we still want to extract 'more' compression from the correlation between RGB layers.
+In GPU, technique generally rely on having partition inside a tile of data.
+Each partition handle a palette of color that is synthetized between two color linearly.
+While such scheme is quite efficient to get something initially running, it is so because it is easy to implement in hardware.
+
+Here in software we have the luxury to possibly use big look-up-table (LUT) because we have memory available at runtime.
+Computation in those LUT can resume very complex calculation that runtime hardware texture decoder can't do easily.
+
+Software compressor focus generally on using some kind of frequency domain (DCT, Fourier Transform, Wavelet Transform),
+cut the less important frequencies and repack the thing.
+
+Such approach do generate noise that I want to avoid and prefer to take my 'losses' somewhere else.
+(I point to the obvious that at some point, whatever how good the compression is, you will have to loose some kind of information or you will be stuck).
+
+So the second technique, is the ability to create a MULTI-COLOR GRADIENT from ONLY TWO COLORS.
+
+For each tile :
+- Minimum RGB and maximum RGB are extracted. They give the corner of a bounding box.
+	Min(R,G,B) and Max(R,G,B)
+	Because we use min/max, it automatically garantees that ANY color in the tile is ALWAYS inside the bounding box.
+	
+- The bounding box is normalized into a UNIT CUBE.
+	Diff(R,G,B) = Max(R,G,B) - Min(R,G,B)
+	Then normalize.
+	
+- That unit cube is splitted into a 64x64x64 array. All the color in the tile point are remapped to a position somewhere in the unit cube.
+	(X,Y,Z) (range 0..63 for each)
+	
+- After that, we look up X,Y,Z entry inside a 3D LUT.
+	The LUT gives us the distance from the closest available color in the LUT, and its index in 4 bit,5 bit,6 bit (t value).
+	We do the sum of distance (score to find how the current tile compare to the LUT distance field).
+	The best match is selected.
+	
+	Note that each 3D LUT is tested with 48 patterns for best score :
+	- Flip X Axis, Flip Y Axis, Flip Z Axis (8 patterns)
+	- Swap X,Y,Z axis (6 patterns)
+	
+	Once the best LUT matches, we use the bit index using another 3x 1D LUT to find back a normalized X,Y,Z. (Table return unsigned 9 bit  0..256 in encoder, decoder will probably use 0..128).
+		X[t value]
+		Y[t value]
+		Z[t value]
+	
+	We can recompute back the decompressed RGB value from the bounding box and normalized coordinates.
+		R = MinR + ((MaxR - MinR)*X[t value]) / 256
+		G = MinG + ((MaxG - MinG)*Y[t value]) / 256
+		B = MinB + ((MaxB - MinB)*Z[t value]) / 256
+
+	After that, RGB distance is tested against original RGB input. If value are too far away, it is rejected.
+	
+	Same, if tile is accepted, reject from list of tile available for compression.
+
+	Uncompressed, in 4 bit mode for 8x8 tile, BPP cost is 16+24+24+1 (Header) + 4*64 = 5.01 bpp.
+
+## Thirst Technique : Palette
+
+	[UNEXPLORED YET] : There could be cases when tile UNIQUE COLOR COUNT <= 8 ( or 16 ) and it could be encoded using a palette (676 ? 777 ? 888 ?)
+	It may not be encodable by 3D Lut due to the amount of color variation.
+	It could be a technique to save tile information.
+	Obviously, it is 'heavy' stuff. Cost per pixel is for 8 color palette : 3x64 + 24*8 = 6 Bit per pixel. + Tile type need to be saved (~6.25 bpp).  
+	
+	It is an interesting way still process 3 planes with a single information per pixel.
+	Palette compression, color reduction technique could be applied there too.
+	
+## Fourth Technique : Same again... in 2D this time !
+
+	We have explorered as much as possible interaction between the 3 planes : R,G,B.
+	We now must explore planes seperately. Still, there are some information we do not want to go wasted :
+	
+	- Gradient may happen only in RG/GB/RB plane, failed in 3D. But we can try to ignore the plane that made the gradient fail before and see
+	if we find new gradient only occuring in 2 planes.
+	
+	- Once we applied all gradient, we can use the same technique as the 3D LUT, but this time in 2D.
+		- Bounding box in 2D. -> Unit Square
+		- Remap 2D color to unit square and look up nearest color available.
+		- Note that 2D LUT have to be tested against 8 Patterns in 2D (compare to 48 in 3D):
+			- Flip X
+			- Flip Y
+			- Swap X/Y
+			
+	[TODO : Do we 1/2 or 1/4 CoCg, do we switch our system to allow better compression)
+
+## Fifth Technique : Same again... in 1D this time !
+	Gradient could still be there for seperate plane.
+	
 ## Range Compression
 
 Analyze a single plane tile of 8x8 and try to find a LUT table that encode the tile the best using only 3 or 4 bit per pixels (DynamicTileEncode).

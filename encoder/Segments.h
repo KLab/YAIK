@@ -133,6 +133,9 @@ struct LinearEqu2D : public AbstractSegment {
 		dx = x1-x0;
 		dy = y1-y0;
 		pieceLength = sqrtf(dx*dx + dy*dy);
+		if (pieceLength < 0.0f) {
+			printf("ALERT");
+		}
 	}
 
 	float distancePartPosition;
