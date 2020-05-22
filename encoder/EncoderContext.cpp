@@ -2978,6 +2978,10 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 
 	int imgW = 0;
 	int imgH = 0;
+	int PlaneBit = (srcA ? 0x1 : 0x0)
+		         | (srcB ? 0x2 : 0x0)
+		         | (srcC ? 0x4 : 0x0)
+				 ;
 
 	if (srcA) {	imgW = srcA->GetWidth();
 				imgH = srcA->GetHeight(); }
@@ -3002,10 +3006,36 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 		createMap = true;
 		smoothMap = new Plane(imgW,imgH);
 		mapSmoothTile = Image::CreateImage(imgW,imgH,3,true);
-		mappedRGB     = Image::CreateImage(imgW,imgH,3,true);
+		mappedRGB     = Image::CreateImage(imgW+1,imgH+1,3,true);
 		BoundingBox bb = smoothMap->GetRect();
 		smoothMap->Fill(bb,0);
 	}
+
+	// 16x16 : 16 bit table (64x64 pixel) -> Lookup the table by block of 4x4 tile. -> Allow 16/4 skip
+	// 16x 8 : 32 bit table (64x64 pixel) -> Lookup the table by block of 4x8 tile. -> Allow 
+	//  8x16 : 32 bit table (64x64 pixel) -> Lookup the table by block of 8x4 tile.
+	//  8x 8 : 64 bit table (64x64 pixel) -> Lookup the table by block of 8x8 tile.
+	//  8x 4 : 64 bit table (64x32 pixel) -> Lookup the table by block of 8x8 tile.
+	//  4x 8 : 64 bit table (32x64 pixel) -> Lookup the table by block of 8x8 tile.
+	//  4x 4 : 64 bit table (32x32 pixel) -> Lookup the table by block of 8x8 tile.
+
+	u32 swizzleParseY;
+	u32 swizzleParseX;
+	u32 bitCount;
+
+	HeaderGradientTile::getSwizzleSize(tileShiftX,tileShiftY,swizzleParseX,swizzleParseY, bitCount);
+
+	//
+	// BECAUSE OF SWIZZLE and WORD SIZE. We must make sure that the bitmap table is wider and aligned to swizzle block size.
+	//
+	// Word size : 1,2,4 bits.
+
+	int xBBTileCount = ((imgW+(swizzleParseX-1)) / swizzleParseX);
+	int yBBTileCount = ((imgH+(swizzleParseY-1)) / swizzleParseY);
+
+	int sizeBitmap  = (xBBTileCount * yBBTileCount * bitCount) >> 3; // No need for rounding, bitCount garantees multibyte alignment.
+	u8* pFillBitMap = new u8[sizeBitmap];
+	memset(pFillBitMap,0, sizeBitmap);
 
 	// +1 +1 because of lower side corners.
 	int streamW		= (imgW/tileSizeX)+1;
@@ -3025,234 +3055,313 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 	int bTile6[256];
 
 	int pos = 0;
-	int sizeBitmap = (imgW >> tileShiftX) * (imgH >> tileShiftY) >> 3;
-	u8* pFillBitMap = new u8[sizeBitmap];
-	memset(pFillBitMap,0, sizeBitmap);
 
-	for (int y=0; y < imgH; y += tileSizeY) {
-		for (int x=0; x < imgW; x += tileSizeX) {
-			int tileX = x>>tileShiftX;
-			int tileY = y>>tileShiftY;
+	int minX = imgW; int maxX = 0;
+	int minY = imgH; int maxY = 0;
 
-			bool isOutside;
-
-			int rgbTL[3]; 
-			int rgbTR[3];
-			int rgbBL[3];
-			int rgbBR[3];
-
-			int rgbTL6[3]; 
-			int rgbTR6[3];
-			int rgbBL6[3];
-			int rgbBR6[3];
-
-			for (int n=0; n < 3; n++) {
-				Plane* p = NULL;
-				switch (n) {
-				case 0: p=srcA; break;
-				case 1: p=srcB; break;
-				case 2: p=srcC; break;
-				}
-				if (p) {
-					rgbTL[n] = p->GetPixelValue(x,y,isOutside);
-					rgbTR[n] = p->GetPixelValue(x+tileSizeX,y,isOutside);
-					rgbBL[n] = p->GetPixelValue(x,y+tileSizeY,isOutside);
-					rgbBR[n] = p->GetPixelValue(x+tileSizeX,y+tileSizeY,isOutside);
-				} else {
-					rgbTL[n] = 0;
-					rgbTR[n] = 0;
-					rgbBL[n] = 0;
-					rgbBR[n] = 0;
+	// Linear 2D order for big tile defined by swizzling.
+	for (int swizzley=0; swizzley < imgH; swizzley += swizzleParseY) {
+		for (int swizzlex=0; swizzlex < imgW; swizzlex += swizzleParseX) {
+			// Linear 2D order inside each big tile
+			for (int y=swizzley; y < swizzley+swizzleParseY; y+= tileSizeY) {
+				// Because of big tile parsing, we may lookup outside of image with sub-tiles. (Y-Axis)
+				if (y >= imgH) {
+					// Keep bit counter aligned for next line...
+					pos += ((swizzley+swizzleParseY - imgH) / tileSizeY) * (swizzleParseX / tileSizeX); 
+					break; 
 				}
 
-				rgbTL6[n] = Round6(rgbTL[n]);
-				rgbTR6[n] = Round6(rgbTR[n]);
-				rgbBL6[n] = Round6(rgbBL[n]);
-				rgbBR6[n] = Round6(rgbBR[n]);
-			}
-
-
-			// If tile is available...
-			bool allowA = srcA ? (mapSmoothTile->GetPlane(0)->GetPixelValue(x,y,isOutside) == 0) : true;
-			bool allowB = srcB ? (mapSmoothTile->GetPlane(1)->GetPixelValue(x,y,isOutside) == 0) : true;
-			bool allowC = srcC ? (mapSmoothTile->GetPlane(2)->GetPixelValue(x,y,isOutside) == 0) : true;
-
-			if (allowA && allowB && allowC) {
-				// Compute fit or not.
-				int lF,rF;
-				int tF,bF;
-				bool rejectTile  = false;
-				bool rejectTile6 = false;
-
-				//---------------------------------------------------------
-				//  Evaluate if RGB Gradient from topleft pixel corner of
-				//  CurrentTile -> Next Tile X
-				//      |
-				//      V
-				//  Next Tile Y -> Next Tile X,Y
-				//---------------------------------------------------------
-				for (int dy = 0; dy < tileSizeY; dy++) {
-					if (tileSizeY == 4) {
-						tF = weight4[dy];
-					} else {
-						if (tileSizeY == 8) {
-							tF = weight8[dy];
-						} else {
-							tF = weight16[dy];
-						}
+				for (int x=swizzlex; x < swizzlex+swizzleParseX; x+= tileSizeX) {
+					// Because of big tile parsing, we may lookup outside of image with sub-tiles. (X-Axis)
+					if (x >= imgW) {
+						// Keep bit counter aligned for next line...
+						pos += ((swizzlex+swizzley - imgW) / tileSizeX); 
+						break; 
 					}
-					bF = 1024-tF;
 
-					for (int dx = 0; dx < tileSizeX; dx++) {
-						int rgbCurr[3]; 
-						rgbCurr[0] = srcA ? srcA->GetPixelValue(x+dx,y+dy,isOutside) : 0;
-						rgbCurr[1] = srcB ? srcB->GetPixelValue(x+dx,y+dy,isOutside) : 0;
-						rgbCurr[2] = srcC ? srcC->GetPixelValue(x+dx,y+dy,isOutside) : 0;
+					int tileX = x>>tileShiftX;
+					int tileY = y>>tileShiftY;
 
-						if (tileSizeX == 4) {
-							lF = weight4[dx];
+					bool isOutside;
+
+					int rgbTL[3]; 
+					int rgbTR[3];
+					int rgbBL[3];
+					int rgbBR[3];
+
+					int rgbTL6[3]; 
+					int rgbTR6[3];
+					int rgbBL6[3];
+					int rgbBR6[3];
+
+					for (int n=0; n < 3; n++) {
+						Plane* p = NULL;
+						switch (n) {
+						case 0: p=srcA; break;
+						case 1: p=srcB; break;
+						case 2: p=srcC; break;
+						}
+						if (p) {
+							rgbTL[n] = p->GetPixelValue(x,y,isOutside);
+							rgbTR[n] = p->GetPixelValue(x+tileSizeX,y,isOutside);
+							rgbBL[n] = p->GetPixelValue(x,y+tileSizeY,isOutside);
+							rgbBR[n] = p->GetPixelValue(x+tileSizeX,y+tileSizeY,isOutside);
 						} else {
-							if (tileSizeX == 8) {
-								lF = weight8[dx];
+							rgbTL[n] = 0;
+							rgbTR[n] = 0;
+							rgbBL[n] = 0;
+							rgbBR[n] = 0;
+						}
+
+						rgbTL6[n] = Round6(rgbTL[n]);
+						rgbTR6[n] = Round6(rgbTR[n]);
+						rgbBL6[n] = Round6(rgbBL[n]);
+						rgbBR6[n] = Round6(rgbBR[n]);
+					}
+
+					// If tile is available...
+					bool allowA = srcA ? (mapSmoothTile->GetPlane(0)->GetPixelValue(x,y,isOutside) == 0) : true;
+					bool allowB = srcB ? (mapSmoothTile->GetPlane(1)->GetPixelValue(x,y,isOutside) == 0) : true;
+					bool allowC = srcC ? (mapSmoothTile->GetPlane(2)->GetPixelValue(x,y,isOutside) == 0) : true;
+
+					if (allowA && allowB && allowC) {
+						// Compute fit or not.
+						int lF,rF;
+						int tF,bF;
+						bool rejectTile  = false;
+						bool rejectTile6 = false;
+
+						//---------------------------------------------------------
+						//  Evaluate if RGB Gradient from topleft pixel corner of
+						//  CurrentTile -> Next Tile X
+						//      |
+						//      V
+						//  Next Tile Y -> Next Tile X,Y
+						//---------------------------------------------------------
+						for (int dy = 0; dy < tileSizeY; dy++) {
+							if (tileSizeY == 4) {
+								tF = weight4[dy];
 							} else {
-								lF = weight16[dx];
+								if (tileSizeY == 8) {
+									tF = weight8[dy];
+								} else {
+									tF = weight16[dy];
+								}
+							}
+							bF = 1024-tF;
+
+							for (int dx = 0; dx < tileSizeX; dx++) {
+								int rgbCurr[3]; 
+								rgbCurr[0] = srcA ? srcA->GetPixelValue(x+dx,y+dy,isOutside) : 0;
+								rgbCurr[1] = srcB ? srcB->GetPixelValue(x+dx,y+dy,isOutside) : 0;
+								rgbCurr[2] = srcC ? srcC->GetPixelValue(x+dx,y+dy,isOutside) : 0;
+
+								if (tileSizeX == 4) {
+									lF = weight4[dx];
+								} else {
+									if (tileSizeX == 8) {
+										lF = weight8[dx];
+									} else {
+										lF = weight16[dx];
+									}
+								}
+								rF = 1024-lF;
+
+
+								// 888 Color blend.
+								int blendT[3];
+								int blendB[3];
+								int blendC[3];
+								for (int ch=0; ch<3;ch++) { 
+									blendT[ch] = rgbTL[ch] * lF + rgbTR[ch] * rF; // *1024 scale
+									blendB[ch] = rgbBL[ch] * lF + rgbBR[ch] * rF;
+									blendC[ch] = (blendT[ch] * tF + blendB[ch] * bF) / (1024*1024);
+								}
+
+								// 666 Color version check : noticed that some tile did pass the test when using 666 color instead of 888 interpolation.
+								int blendT6[3];
+								int blendB6[3];
+								int blendC6[3];
+
+								for (int ch=0; ch<3;ch++) {
+									blendT6[ch] = rgbTL6[ch] * lF + rgbTR6[ch] * rF; // *1024 scale
+									blendB6[ch] = rgbBL6[ch] * lF + rgbBR6[ch] * rF;
+									blendC6[ch] = (blendT6[ch] * tF + blendB6[ch] * bF) / (1024*1024);
+								}
+
+								int idxT = dx + dy*tileSizeX;
+								rTile[idxT] = blendC[0]; rTile6[idxT] = blendC6[0];
+								gTile[idxT] = blendC[1]; gTile6[idxT] = blendC6[1];
+								bTile[idxT] = blendC[2]; bTile6[idxT] = blendC6[2];
+
+								if ((abs(rgbCurr[0]-blendC[0])>rejectFactor) || (abs(rgbCurr[1]-blendC[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC[2])>rejectFactor)) {
+									rejectTile = true;
+								}
+
+								if ((abs(rgbCurr[0]-blendC6[0])>rejectFactor) || (abs(rgbCurr[1]-blendC6[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC6[2])>rejectFactor)) {
+									rejectTile6 = true;
+								}
 							}
 						}
-						rF = 1024-lF;
 
-
-						// 888 Color blend.
-						int blendT[3];
-						int blendB[3];
-						int blendC[3];
-						for (int ch=0; ch<3;ch++) { 
-							blendT[ch] = rgbTL[ch] * lF + rgbTR[ch] * rF; // *1024 scale
-							blendB[ch] = rgbBL[ch] * lF + rgbBR[ch] * rF;
-							blendC[ch] = (blendT[ch] * tF + blendB[ch] * bF) / (1024*1024);
-						}
-
-						// 666 Color version check : noticed that some tile did pass the test when using 666 color instead of 888 interpolation.
-						int blendT6[3];
-						int blendB6[3];
-						int blendC6[3];
-
-						for (int ch=0; ch<3;ch++) {
-							blendT6[ch] = rgbTL6[ch] * lF + rgbTR6[ch] * rF; // *1024 scale
-							blendB6[ch] = rgbBL6[ch] * lF + rgbBR6[ch] * rF;
-							blendC6[ch] = (blendT6[ch] * tF + blendB6[ch] * bF) / (1024*1024);
-						}
-
-						int idxT = dx + dy*tileSizeX;
-						rTile[idxT] = blendC[0]; rTile6[idxT] = blendC6[0];
-						gTile[idxT] = blendC[1]; gTile6[idxT] = blendC6[1];
-						bTile[idxT] = blendC[2]; bTile6[idxT] = blendC6[2];
-
-						if ((abs(rgbCurr[0]-blendC[0])>rejectFactor) || (abs(rgbCurr[1]-blendC[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC[2])>rejectFactor)) {
-							rejectTile = true;
-						}
-
-						if ((abs(rgbCurr[0]-blendC6[0])>rejectFactor) || (abs(rgbCurr[1]-blendC6[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC6[2])>rejectFactor)) {
-							rejectTile6 = true;
-						}
-					}
-				}
-
-				// --------------------------------------------------------
-				//   If Tile match.
-				// --------------------------------------------------------
-				if (!rejectTile || !rejectTile6) {
-					int EncodedA[3],EncodedB[3],EncodedC[3],EncodedD[3];
+						// --------------------------------------------------------
+						//   If Tile match.
+						// --------------------------------------------------------
+						if (!rejectTile || !rejectTile6) {
+							int EncodedA[3],EncodedB[3],EncodedC[3],EncodedD[3];
 					
-					for (int n=0; n < 3; n++) {
-						EncodedA[n] = mappedRGB->GetPlane(n)->GetPixelValue				  (x         ,y         ,isOutside);
-						if (!isOutside && !EncodedA[n]) { mappedRGB->GetPlane(n)->SetPixel(x         ,y         ,255); }
-						EncodedB[n] = mappedRGB->GetPlane(n)->GetPixelValue               (x+tileSizeX,y         ,isOutside);
-						if (!isOutside && !EncodedB[n]) { mappedRGB->GetPlane(n)->SetPixel(x+tileSizeX,y         ,255); }
-						EncodedC[n] = mappedRGB->GetPlane(n)->GetPixelValue               (x         ,y+tileSizeY,isOutside);
-						if (!isOutside && !EncodedC[n]) { mappedRGB->GetPlane(n)->SetPixel(x         ,y+tileSizeY,255); }
-						EncodedD[n] = mappedRGB->GetPlane(n)->GetPixelValue               (x+tileSizeX,y+tileSizeY,isOutside);
-						if (!isOutside && !EncodedD[n]) { mappedRGB->GetPlane(n)->SetPixel(x+tileSizeX,y+tileSizeY,255); }
-					}
+							for (int n=0; n < 3; n++) {
+								EncodedA[n] = mappedRGB->GetPlane(n)->GetPixelValue				  (x         ,y         ,isOutside);
+								if (!isOutside && !EncodedA[n]) { mappedRGB->GetPlane(n)->SetPixel(x         ,y         ,255); }
+								EncodedB[n] = mappedRGB->GetPlane(n)->GetPixelValue               (x+tileSizeX,y         ,isOutside);
+								if (!isOutside && !EncodedB[n]) { mappedRGB->GetPlane(n)->SetPixel(x+tileSizeX,y         ,255); }
+								EncodedC[n] = mappedRGB->GetPlane(n)->GetPixelValue               (x         ,y+tileSizeY,isOutside);
+								if (!isOutside && !EncodedC[n]) { mappedRGB->GetPlane(n)->SetPixel(x         ,y+tileSizeY,255); }
+								EncodedD[n] = mappedRGB->GetPlane(n)->GetPixelValue               (x+tileSizeX,y+tileSizeY,isOutside);
+								if (!isOutside && !EncodedD[n]) { mappedRGB->GetPlane(n)->SetPixel(x+tileSizeX,y+tileSizeY,255); }
+							}
 			
-					// Is this pixel have been processed ?
-					bool isOutside;
-					pFillBitMap[pos>>3] |= (1<<(pos&7));
+							// Is this pixel have been processed ?
+							bool isOutside;
+							pFillBitMap[pos>>3] |= (1<<(pos&7));
 
-					// Mark the tile for next passes (avoid compressing sub tile inside bigger tile from previous pass)
-					for (int dy = 0; dy < tileSizeY; dy++) {
-						for (int dx = 0; dx < tileSizeX; dx++) {
-							smoothMap->SetPixel(x+dx,y+dy,255);
-							if (srcA) { mapSmoothTile->GetPlane(0)->SetPixel(x+dx,y+dy,255); }
-							if (srcB) { mapSmoothTile->GetPlane(1)->SetPixel(x+dx,y+dy,255); }
-							if (srcC) { mapSmoothTile->GetPlane(2)->SetPixel(x+dx,y+dy,255); }
-							mipmapMask->SetPixel(x+dx,y+dy,0); // Pixel removed.
-						}
-					}
+							// Mark the tile for next passes (avoid compressing sub tile inside bigger tile from previous pass)
+							for (int dy = 0; dy < tileSizeY; dy++) {
+								for (int dx = 0; dx < tileSizeX; dx++) {
+									smoothMap->SetPixel(x+dx,y+dy,255);
+									if (srcA) { mapSmoothTile->GetPlane(0)->SetPixel(x+dx,y+dy,255); }
+									if (srcB) { mapSmoothTile->GetPlane(1)->SetPixel(x+dx,y+dy,255); }
+									if (srcC) { mapSmoothTile->GetPlane(2)->SetPixel(x+dx,y+dy,255); }
+									mipmapMask->SetPixel(x+dx,y+dy,0); // Pixel removed.
+								}
+							}
 
-					TileDone++;
+							if (minX > x)			{ minX = x; }
+							if (minY > y)			{ minY = y; }
+							if (maxX < x+tileSizeX) { maxX = x + tileSizeX; }
+							if (maxY < y+tileSizeY) { maxY = y + tileSizeY; }
 
-					for (int dy = 0; dy < tileSizeY; dy++) {
-						for (int dx = 0; dx < tileSizeX; dx++) {
-							int idxT = dx + dy*tileSizeX;
-							// Generate RGB interpolated for compare
-							if (srcA) { testOutput->GetPlane(0)->SetPixel(x+dx,y+dy,rTile[idxT]); }
-							if (srcB) { testOutput->GetPlane(1)->SetPixel(x+dx,y+dy,gTile[idxT]); }
-							if (srcC) { testOutput->GetPlane(2)->SetPixel(x+dx,y+dy,bTile[idxT]); }
-						}
-					}
+							TileDone++;
 
-					// Write Top Left
-					int* TL = rejectTile ? rgbTL6 : rgbTL;
-					int* TR = rejectTile ? rgbTR6 : rgbTR;
-					int* BL = rejectTile ? rgbBL6 : rgbBL;
-					int* BR = rejectTile ? rgbBR6 : rgbBR;
+							for (int dy = 0; dy < tileSizeY; dy++) {
+								for (int dx = 0; dx < tileSizeX; dx++) {
+									int idxT = dx + dy*tileSizeX;
+									// Generate RGB interpolated for compare
+									if (srcA) { testOutput->GetPlane(0)->SetPixel(x+dx,y+dy,rTile[idxT]); }
+									if (srcB) { testOutput->GetPlane(1)->SetPixel(x+dx,y+dy,gTile[idxT]); }
+									if (srcC) { testOutput->GetPlane(2)->SetPixel(x+dx,y+dy,bTile[idxT]); }
+								}
+							}
 
-					if (srcA && !EncodedA[0]) { *wrRgbStream++ = TL[0]; }
-					if (srcB && !EncodedA[1]) { *wrRgbStream++ = TL[1]; }
-					if (srcC && !EncodedA[2]) { *wrRgbStream++ = TL[2]; }
+							// Write Top Left
+							int* TL = rejectTile ? rgbTL6 : rgbTL;
+							int* TR = rejectTile ? rgbTR6 : rgbTR;
+							int* BL = rejectTile ? rgbBL6 : rgbBL;
+							int* BR = rejectTile ? rgbBR6 : rgbBR;
 
-					// Top Right
-					if (srcA && !EncodedB[0]) { *wrRgbStream++ = TR[0]; }
-					if (srcB && !EncodedB[1]) { *wrRgbStream++ = TR[1]; }
-					if (srcC && !EncodedB[2]) { *wrRgbStream++ = TR[2]; }
+							if (srcA && !EncodedA[0]) { *wrRgbStream++ = TL[0]; printf("TL\n"); }
+							if (srcB && !EncodedA[1]) { *wrRgbStream++ = TL[1]; }
+							if (srcC && !EncodedA[2]) { *wrRgbStream++ = TL[2]; }
 
-					// Bottom Left
-					if (srcA && !EncodedC[0]) { *wrRgbStream++ = BL[0]; }
-					if (srcB && !EncodedC[1]) { *wrRgbStream++ = BL[1]; }
-					if (srcC && !EncodedC[2]) { *wrRgbStream++ = BL[2]; }
+							// Top Right
+							if (srcA && !EncodedB[0]) { *wrRgbStream++ = TR[0]; printf("TR\n"); }
+							if (srcB && !EncodedB[1]) { *wrRgbStream++ = TR[1]; }
+							if (srcC && !EncodedB[2]) { *wrRgbStream++ = TR[2]; }
 
-					// Bottom Right
-					if (srcA && !EncodedD[0]) { *wrRgbStream++ = BR[0]; }
-					if (srcB && !EncodedD[1]) { *wrRgbStream++ = BR[1]; }
-					if (srcC && !EncodedD[2]) { *wrRgbStream++ = BR[2]; }
+							// Bottom Left
+							if (srcA && !EncodedC[0]) { *wrRgbStream++ = BL[0]; printf("BL\n"); }
+							if (srcB && !EncodedC[1]) { *wrRgbStream++ = BL[1]; }
+							if (srcC && !EncodedC[2]) { *wrRgbStream++ = BL[2]; }
+
+							// Bottom Right
+							if (srcA && !EncodedD[0]) { *wrRgbStream++ = BR[0];  printf("BR\n");}
+							if (srcB && !EncodedD[1]) { *wrRgbStream++ = BR[1]; }
+							if (srcC && !EncodedD[2]) { *wrRgbStream++ = BR[2]; }
+
+							printf("[%i,%i] -> %i\n",x,y,(wrRgbStream - rgbStream) / 3);
+
+							/*
+							printf("Tile Color TL : %i,%i,%i\n",TL[0],TL[1],TL[2]);
+							printf("Tile Color TR : %i,%i,%i\n",TR[0],TR[1],TR[2]);
+							printf("Tile Color BL : %i,%i,%i\n",BL[0],BL[1],BL[2]);
+							printf("Tile Color BR : %i,%i,%i\n",BR[0],BR[1],BR[2]);
+							*/
+						} // End Tile Accepted as gradient tile.
+					} // End Accept Tile for encoding test.
+					
+					pos++;
 				}
 			}
-			pos++;
 		}
 	}
 
-	{
-		int sizeDec = streamW * streamH * 3;
-		unsigned char* pZStdStream = new unsigned char[streamH * streamW * 3 * 2];
-		int result = (int)ZSTD_compress(pZStdStream, sizeDec * 2, rgbStream, wrRgbStream - rgbStream, 18);
-		fwrite(pZStdStream,1,result,outFile);
-		delete[] pZStdStream;
+	HeaderGradientTile header;
 
-		fileOutSize += result;
-		printf("RGB Gradient Tile %ix%i : %i\n",tileSizeX, tileSizeY,result);
+	/*
+	// Clip correctly the bitmap because of swizzling.
+	if (tileSizeY < 8) {
+		minY = ((minY     >> 3) << 3);		// Rounding 8 pixel Trunc.
+		maxY = (((maxY+7) >> 3) << 3);		// Rounding 8 pixel Ceil.
 	}
 
-		{
-			int sizeDec = sizeBitmap * 2;
-			unsigned char* pZStdStream = new unsigned char[sizeDec];
-			int result = (int)ZSTD_compress(pZStdStream, sizeDec, pFillBitMap, sizeBitmap, 18);
-			fwrite(pZStdStream,1,result,outFile);
-			delete[] pZStdStream;
-			fileOutSize += result;
-			printf("Gradient Map %ix%i : %i\n",tileSizeX, tileSizeY,result);
-		}
+	// Align horizontally to speed up decoder.
+	minX = (minX     >> 3) << 3;
+	maxX = ((maxX+7) >> 3) << 3;
+	*/
 
-		delete[] pFillBitMap;
+	// Setup bounding box.
+	header.bbox.x	= minX;
+	header.bbox.y	= minY;
+	header.bbox.w	= maxX - minX;
+	header.bbox.h	= maxY - minX;
+
+	// Setup format.
+	header.format	= tileShiftX | (tileShiftY<<3);
+	header.plane	= PlaneBit;
+
+	unsigned char* pZStdStreamBitmap = new unsigned char[sizeBitmap*2];
+	int result = (int)ZSTD_compress(pZStdStreamBitmap, sizeBitmap*2, pFillBitMap,sizeBitmap, 18);
+	fileOutSize += result;
+	printf("Gradient Map %ix%i : %i\n",tileSizeX, tileSizeY,result);
+	
+	header.streamBitmapSize = result;
+
+	// Compress the RGB stream.
+	int sizeDec = streamW * streamH * 3;
+	int uncompressRGBSize = wrRgbStream - rgbStream;
+	unsigned char* pZStdStreamRGB = new unsigned char[streamH * streamW * 3 * 2];
+	result = (int)ZSTD_compress(pZStdStreamRGB, sizeDec * 2, rgbStream, uncompressRGBSize, 18);
+
+	header.streamRGBSize				= result;
+	header.streamRGBSizeUncompressed	= uncompressRGBSize;
+
+	fileOutSize += result;
+	printf("RGB Gradient Tile %ix%i : %i\n",tileSizeX, tileSizeY,result);
+
+	HeaderBase headerTag;
+	headerTag.tag.tag8[0] = 'G';
+	headerTag.tag.tag8[1] = 'T';
+	headerTag.tag.tag8[2] = 'I';
+	headerTag.tag.tag8[3] = 'L';
+
+	int baseSize = (sizeof(HeaderGradientTile) + header.streamBitmapSize + header.streamRGBSize);
+	headerTag.length	  = ((baseSize + 3) >> 2) <<2;	// Round multiple of 4.
+	u8 pad[3] = { 0,0,0 };
+	int padding = headerTag.length - baseSize;
+
+	MipmapHeader headerMip;
+	headerMip;
+
+	fwrite(&headerTag, sizeof(HeaderBase)	, 1, outFile);
+	fwrite(&header,1,sizeof(HeaderGradientTile),outFile);
+	fwrite(pZStdStreamBitmap,1,header.streamBitmapSize,outFile);
+	fwrite(pZStdStreamRGB,1,header.streamRGBSize,outFile);
+	if (padding) { fwrite(pad, 1, padding, outFile); }
+
+	delete[] pZStdStreamRGB;
+	delete[] pZStdStreamBitmap;
+
+	delete[] pFillBitMap;
 
 	if (tileSizeX ==  4) { smoothMap->SaveAsPNG("NewSmoothMap4.png"); }
 	if (tileSizeX ==  8) { smoothMap->SaveAsPNG("NewSmoothMap8.png"); }
@@ -4879,6 +4988,7 @@ void EncoderContext::convert(const char* outputFile) {
 		// --------------------------------------------------------------
 		// Find 3D Tile matching...
 		// --------------------------------------------------------------
+#if 0
 		RegisterAndCreate3DLut();
 
 
@@ -4906,7 +5016,7 @@ void EncoderContext::convert(const char* outputFile) {
 
 		EndCorrelationSearch3D(); // Header will be both 8 and 4 pixel tile stream...
 	//	Correlation3DSearch(YCoCgImg, output); // Test in YCoCb Space.
-
+#endif
 		//
 		// Next Phase IN ORDER : 3D Correlation in RGB space. [RGB][RGB][Tile Type + Swap][Tile encoded 8x8]
 		// For now support only Tile Type '0' -> Later add new type (now single LINE)
@@ -5004,12 +5114,13 @@ void EncoderContext::convert(const char* outputFile) {
 		// Next Phase IN ORDER : 2D Correlation in  GB space.
 
 		// Here we switch to another mode for 2 plane/1 plane
+#if 0
 		chromaReduction();
 
 		DynamicTileEncode(false,YCoCgImg->GetPlane(0), outY, false, false, false,false);
 		DynamicTileEncode(false,workCo, outCo,true, false, halfCoW,halfCoH);
 		DynamicTileEncode(true ,workCg, outCg,false, true, halfCgW,halfCgH);
-
+#endif
 		// ---------------------------------------------------------------
 #if 0
 		// Create2DCorrelationPatterns();
@@ -5111,6 +5222,7 @@ void EncoderContext::convert(const char* outputFile) {
 
 
 
+#if 0
 
 		int bx = 0;
 		int by = 0;
@@ -5129,7 +5241,8 @@ void EncoderContext::convert(const char* outputFile) {
 			printf("ERROR. => Can not correlate different size Cg and Co plane.\n");
 			while (1) {}
 		}
-
+#endif
+#if 0
 		for (int py = 0; py < workCo->GetHeight(); py += tsize) {
 			for (int px = 0; px < workCo->GetWidth(); px += tsize) {
 				tileCnt++;
@@ -5313,7 +5426,9 @@ void EncoderContext::convert(const char* outputFile) {
 			}
 		}
 		printf("\n");
+#endif
 
+#if 0
 		/*
 			1. Input BSpline
 				1.1 Generate 64x64 Error Map
@@ -5329,9 +5444,9 @@ void EncoderContext::convert(const char* outputFile) {
 
 		Interpolate(output,outCo, EInterpMode::QUART_TL_REFERENCE_BILINEAR, halfCoW, halfCoH);
 		Interpolate(output,outCg, EInterpMode::QUART_TL_REFERENCE_BILINEAR, halfCgW, halfCgH);
-
+#endif
 	
-		output->ConvertToYCoCg2RGB(doConversionRGB2YCoCg)->SavePNG("outputEncoderRGB.png",NULL);
+//		output->ConvertToYCoCg2RGB(doConversionRGB2YCoCg)->SavePNG("outputEncoderRGB.png",NULL);
 
 		Tag endBlk;
 		endBlk.tag32 = 0xDEADBEEF;

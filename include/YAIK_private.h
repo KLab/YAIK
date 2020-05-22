@@ -33,6 +33,8 @@ struct YAIK_Instance {
 	u32				srcLength;
 
 	u8*				mipMapMask;		// Current Mask during decompression.
+	u8*				mapRGB;
+	u8*				mapRGBMask;
 	BoundingBox		maskBBox;
 
 	u8*				alphaChannel;			// 8 Bit Alpha Channel
@@ -42,6 +44,7 @@ struct YAIK_Instance {
 	u8*				planeCg;
 	u16				width;
 	u16				height;
+	u16				strideRGBMap;
 	bool			isRGBA;
 
 	void			FillGradient	();
@@ -139,6 +142,7 @@ struct UniqueColorHeader {
 	u8				colorCount;						// 1..255, if 0=256 colors.
 };
 
+// DEPRECATED
 struct HeaderSmoothMap {
 	BoundingBox		bbox;							// Quarter Size bitmap, 8 pixel aligned map.
 	u32				streamSize;
@@ -148,6 +152,112 @@ struct HeaderSmoothMap {
 	u8				grid;							// [Bit 0:3 : X Offset][Bit 4:7 Y Offset]
 	// [Stream for bbQuarter]
 	// [RGB Stream]
+};
+//---DEPRECATED
+
+struct HeaderGradientTile {
+	BoundingBox		bbox;
+	u32				streamBitmapSize;				// Decompressed size estimated from bbox and type.
+	u32				streamRGBSize;
+	u32				streamRGBSizeUncompressed;
+	u8				version;
+
+	// Note : 
+	// All format with tile < 8 pixel will be swizzled to localize 8x8 work.
+	// 4x8 has no change.
+	//
+	// but 8x4 and 4x4 will have subtile in stream order and not just follow X->Y order.
+	// [-1-]  [1][2]
+	// [-2-]  [3][4]
+	enum EFormat {
+		TILE_16x16	= (4<<0) | (4<<3),
+		TILE_16x8   = (4<<0) | (3<<3),
+		TILE_8x16   = (3<<0) | (4<<3),
+		TILE_8x8    = (3<<0) | (3<<3),
+		TILE_8x4    = (3<<0) | (2<<3),
+		TILE_4x8    = (2<<0) | (3<<3),
+		TILE_4x4    = (2<<0) | (2<<3),
+	}; // Note the format indicate in the X and Y Axis the number of bit to indicate the tile size.
+	u8				format;
+
+	// Bit 0 : Plane R/Y
+	// Bit 1 : Plane G/Co
+	// Bit 2 : Plane B/Cg
+	u8				plane;
+
+	// + [Compressed Stream Bitmap]
+	// + [Compressed Stream RGB]
+
+
+	//  Define the way of parsing the bitmap for gradient tile.
+	//	- Give swizzling rule : necessary for encoder and decoder to MATCH.
+	//	- Necessary for both to defined buffer allocation size.
+	//	So the function is implemented here as common code between the projects.
+	static void getSwizzleSize(int tileShiftX, int tileShiftY, u32& bigTileX, u32& bigTileY, u32& bitCount) {
+		// Return default failure value.
+		int swizzleParseX = 0;
+		int swizzleParseY = 0;
+
+		switch (tileShiftX) {
+		case 4: // 16 Pixels
+			switch (tileShiftY) {
+			case 4:
+				// 16 bit word.
+				swizzleParseX = 64;
+				swizzleParseY = 64;
+				break;
+			case 3:
+				// 32 bit word.
+				swizzleParseX = 64;
+				swizzleParseY = 64;
+				break;
+			case 2:
+				// Never happen here.
+				break;
+			}
+			break;
+		case 3: // 8 Pixels.
+			switch (tileShiftY) {
+			case 4:
+				// 32 bit word.
+				swizzleParseX = 64;
+				swizzleParseY = 64;
+				break;
+			case 3:
+				// 64 bit word.
+				swizzleParseX = 64;
+				swizzleParseY = 64;
+				break;
+			case 2:
+				// 64 bit word.
+				swizzleParseX = 64;
+				swizzleParseY = 32;
+				break;
+			}
+			break;
+		case 2: // 2 Pixels.
+			switch (tileShiftY) {
+			case 4:
+				// Never happen here.
+				break;
+			case 3:
+				// 64 bit word.
+				swizzleParseX = 32;
+				swizzleParseY = 64;
+				break;
+			case 2:
+				// 64 bit word.
+				swizzleParseX = 32;
+				swizzleParseY = 32;
+				break;
+			}
+			break;
+		}
+
+		bigTileX = swizzleParseX;
+		bigTileY = swizzleParseY;
+		bitCount = (swizzleParseX >> tileShiftX) * (swizzleParseY >> tileShiftY);
+	}
 };
 
 struct PlaneTile {
