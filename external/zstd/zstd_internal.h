@@ -22,7 +22,9 @@
 #include "compiler.h"
 #include "mem.h"
 #include "error_private.h"
+#ifndef ZSTD_STATIC_LINKING_ONLY
 #define ZSTD_STATIC_LINKING_ONLY
+#endif
 #include "zstd.h"
 #define FSE_STATIC_LINKING_ONLY
 #include "fse.h"

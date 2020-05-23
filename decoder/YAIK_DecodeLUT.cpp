@@ -292,8 +292,14 @@ unsigned char* GetLUTBase3Bit(int planeType) {
 	return fullTableMap3Bit;
 }
 
-void InitLUT() {
+bool InitLUT() {
+	// [TODO]
 	CHECK_MEM;
 	DynamicTileEncoderTable();
 	CHECK_MEM;
+	return true;
+}
+
+void ReleaseLUT() {
+	// [TODO]
 }

@@ -37,7 +37,7 @@ int main()
 		u8* memoryContext = new u8[amount];
 		YAIK_LIB lib = YAIK_Init(memoryContext, 8);
 
-		DecodedImage imageInfo;
+		YAIK_SDecodedImage imageInfo;
 		FILE* f = fopen("../../encoder/vc_prj/myTestFile.yaik", "rb");
 		fseek(f, 0, SEEK_END);
 		u32 fileLength = ftell(f);
@@ -52,16 +52,17 @@ int main()
 		{
 			printf("---%i----\n",n);
 
-			if (YAIK_DecodeImagePre(lib, fileData, fileLength, imageInfo)) {
+			if (YAIK_DecodeImagePre(lib, fileData, fileLength, &imageInfo)) {
 
 				int imgSize = imageInfo.width * imageInfo.height * (imageInfo.hasAlpha ? 4 : 3);
 				u8* destinationRGB = new u8[imgSize];
 				memset(destinationRGB, 0xCC, imgSize );
 
-				imageInfo.outputImage	= destinationRGB;
+				imageInfo.outputImage			= destinationRGB;
+				imageInfo.outputImageStride		= imageInfo.width * (imageInfo.hasAlpha ? 4 : 3);
 
 				StartCounter();
-				YAIK_DecodeImage(fileData, fileLength, imageInfo);
+				YAIK_DecodeImage(fileData, fileLength, &imageInfo);
 				printf("Millisecond %f\n",(float)GetCounter());
 
 				/*

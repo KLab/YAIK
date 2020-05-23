@@ -29,27 +29,30 @@ struct BoundingBox {
 //--------------------------------------------------------------------------------------------------------------------
 
 struct YAIK_Instance {
+	YAIK_SMemAlloc	allocCtx;
+	void*			decompCtx;
 	void*			srcCheck;
 	u32				srcLength;
 
 	u8*				mipMapMask;		// Current Mask during decompression.
 	u8*				mapRGB;
 	u8*				mapRGBMask;
+	u8*				tile4x4Mask;
 	BoundingBox		maskBBox;
 
 	u8*				alphaChannel;			// 8 Bit Alpha Channel
-	u8*				targetRGBA;
 	u8*				planeY;
 	u8*				planeCo;
 	u8*				planeCg;
+	u8*				planeR;
+	u8*				planeG;
+	u8*				planeB;
 	u16				width;
 	u16				height;
+	u16				tileWidth;
+	u16				tileHeight;
 	u16				strideRGBMap;
 	bool			isRGBA;
-
-	void			FillGradient	();
-	void			ComputeCoCg		();
-	void			ConvertYCoCg2RGB();
 };
 
 struct YAIK_Library {
