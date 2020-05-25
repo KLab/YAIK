@@ -232,10 +232,10 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 	
 	pCtx->width			= pHeader->width;
 	pCtx->height		= pHeader->height;
-	pCtx->tileWidth     = ((pCtx->width + 7)>>3);
-	pCtx->tileHeight    = ((pCtx->height+ 7)>>3);
-
-	int singlePlaneSize = (pCtx->tileWidth * pCtx->tileHeight) << 6;
+	pCtx->tileWidth     = RDIV8(pCtx->width);
+	pCtx->tileHeight    = RDIV8(pCtx->height);
+	
+	int singlePlaneSize = MUL64(pCtx->tileWidth * pCtx->tileHeight);
 
 	pHeader++; // Skip header now.
 
@@ -257,6 +257,10 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 	if (pCtx->planeR == NULL) 
 	{ SetErrorCode(YAIK_MALLOC_FAIL); goto error; }
+
+#ifdef YAIK_DEVEL
+	memset(pCtx->planeR,0,singlePlaneSize * 3);
+#endif
 
 	// --- Convert Own Memory Allocator into ZStd Allocator
 	ZSTD_customMem mem;
@@ -316,7 +320,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 			bool resultOp = true;
 			if (state == 0) {
-				switch (pHeader->parameters & 7) {
+				switch (MOD8(pHeader->parameters)) {
 				case AlphaHeader::IS_1_BIT_FULL:
 					resultOp = Decompress1BitMaskAlign8NoMask			(pCtx, pHeader->bbox, dataUncompressed);
 					break;
@@ -342,7 +346,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					resultOp = false;
 				}
 			} else if (state == 1) {
-				switch (pHeader->parameters & 7) {
+				switch (MOD8(pHeader->parameters)) {
 				case AlphaHeader::IS_1_BIT_FULL:
 					resultOp = Decompress1BitMaskAlign8NoMask			(pCtx, pHeader->bbox, dataUncompressed);
 					break;
@@ -405,14 +409,15 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				}
 
 				if (!pCtx->mapRGB) {
-					pCtx->strideRGBMap  = (pCtx->width>>2)+1;
-					int size			=  pCtx->strideRGBMap * ((pCtx->height>>2)+1);
+					pCtx->strideRGBMap  = DIV4(pCtx->width)+1;
+					int size			=  pCtx->strideRGBMap * (DIV4(pCtx->height)+1);
 					pCtx->mapRGB		= (u8*)AllocateMem(&allocCtx,size * 3);
-					int sizeMask		= (size+7) >>3;
-					pCtx->mapRGBMask	= (u8*)AllocateMem(&allocCtx,sizeMask);
-					int sizeTileMap     = (((pCtx->width+7)>>3)*(((pCtx->height+7)>>3)*4))>>3;
-					pCtx->tile4x4Mask   = (u8*)AllocateMem(&allocCtx,sizeTileMap); // Map 1 bit per 4x4 tile : know if pixel are used or not by gradient decode.
-
+					int sizeMask		= RDIV8(size);
+					pCtx->mapRGBMask	= (u8*)AllocateMem(&allocCtx,sizeMask * 3);
+					pCtx->sizeMapMask   = sizeMask;
+					pCtx->tile4x4MaskSize= DIV8((RDIV16(pCtx->width)<<2)*(RDIV8(pCtx->height)<<1));
+					pCtx->tile4x4Mask   = (u8*)AllocateMem(&allocCtx,pCtx->tile4x4MaskSize*3); // Map 1 bit per 4x4 tile : know if pixel are used or not by gradient decode.
+					pCtx->singleRGB		= true;
 					if ((pCtx->mapRGB == NULL) || (pCtx->mapRGBMask == NULL) || (pCtx->tile4x4Mask == NULL)) {
 						goto error;
 					}
@@ -420,14 +425,24 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					// We do not care about garbage in mapRGB.
 					// mapRGBMask will tell us if we have valid data or not.
 					memset(pCtx->mapRGBMask, 0, sizeMask   );
-					memset(pCtx->tile4x4Mask,0, sizeTileMap);
+					memset(pCtx->tile4x4Mask,0, pCtx->tile4x4MaskSize);
+				}
+
+				if (pHeader->plane != 7 && pCtx->singleRGB) {
+					pCtx->singleRGB = false;
+					// Duplicate RGB Loaded pixel bitmap for G and B channel now. (until now it was RGB within a single bit-map)
+					memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask   ],pCtx->mapRGBMask,pCtx->sizeMapMask);
+					memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask<<1],pCtx->mapRGBMask,pCtx->sizeMapMask);
+					// Duplicate Processed map of 4x4 tile. (until now it was RGB within a single bit-map)
+					memcpy(&pCtx->mapRGBMask[pCtx->tile4x4MaskSize   ],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
+					memcpy(&pCtx->mapRGBMask[pCtx->tile4x4MaskSize<<1],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
 				}
 
 				// -------------------------------------------------------------------
 				//  Decompress RGB Stream + Tile Map
 				// -------------------------------------------------------------------
-				int XShift =  pHeader->format     & 7;
-				int YShift = (pHeader->format>>3) & 7;
+				int XShift = MOD8(     pHeader->format );
+				int YShift = MOD8(DIV8(pHeader->format));
 
 				// Compute Swizzling parameters.
 				u32 bigTileX, bigTileY, bitCount; // RESULT PARAMETER
@@ -435,7 +450,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				int xBBTileCount= ((pCtx->width +(bigTileX-1)) / bigTileX); // OPTIMIZE : getSwizzleSize return bitShift too and remove division.
 				int yBBTileCount= ((pCtx->height+(bigTileY-1)) / bigTileY);
-				int sizeBitmap	= (xBBTileCount * yBBTileCount * bitCount) >> 3; // No need for rounding, bitCount garantees multibyte alignment.
+				int sizeBitmap	= DIV8(xBBTileCount * yBBTileCount * bitCount); // No need for rounding, bitCount garantees multibyte alignment.
 
 				u8* dataUncompressedTilebitmap = (u8*)DecompressData(pCtx, after, pHeader->streamBitmapSize, sizeBitmap);
 				after += pHeader->streamBitmapSize;
@@ -469,9 +484,18 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				BoundingBox bb;
 				bb.x=0; bb.y=0;
 				bb.w=512; bb.h=720;
-				// printf("Color Count Stream : %i\n",pHeader->streamRGBSizeUncompressed/3);
-				// DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb);
-				// DebugRGBAsPng("RGBMap.png",pCtx->mapRGB, (pCtx->width>>2)+1, ((pCtx->height>>2)+1), 3);
+#ifdef YAIK_DEVEL
+	#if 1
+				//printf("Color Count Stream : %i\n",pHeader->streamRGBSizeUncompressed/3);
+				DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb);
+				if (pHeader->plane == 7) {
+					Dump4x4TileMap("Tile4x4.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
+				} else {
+					Dump4x4TileMap("Tile4x4.png", pCtx->tile4x4Mask, &pCtx->tile4x4Mask[pCtx->tile4x4MaskSize],&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize<<1], pCtx->width>>2, pCtx->height>>2);
+				}
+				DebugRGBAsPng("RGBMap.png",pCtx->mapRGB, (pCtx->width>>2)+1, ((pCtx->height>>2)+1), 3);
+	#endif
+#endif
 			}
 		}
 			break;
@@ -501,6 +525,14 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 	// Copy, interleave, remix to the target buffer.
 	context->customImageOutput(context,&srcInfo);
+
+	// Free all the memory allocated (or not : NULL is OK)
+	allocCtx.customFree(&allocCtx,pCtx->alphaChannel	);
+	allocCtx.customFree(&allocCtx,pCtx->mapRGB			);
+	allocCtx.customFree(&allocCtx,pCtx->mapRGBMask		);
+	allocCtx.customFree(&allocCtx,pCtx->mipMapMask		);
+	allocCtx.customFree(&allocCtx,pCtx->planeR			); // Contains R,G,B
+	allocCtx.customFree(&allocCtx,pCtx->tile4x4Mask		);
 
 	gLibrary.FreeInstance(pCtx);
 	return true;

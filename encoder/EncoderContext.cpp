@@ -3130,6 +3130,8 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 						int tF,bF;
 						bool rejectTile  = false;
 						bool rejectTile6 = false;
+						bool rejectTileO = false;
+						bool rejectTile6O= false;
 
 						//---------------------------------------------------------
 						//  Evaluate if RGB Gradient from topleft pixel corner of
@@ -3138,6 +3140,7 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 						//      V
 						//  Next Tile Y -> Next Tile X,Y
 						//---------------------------------------------------------
+
 						for (int dy = 0; dy < tileSizeY; dy++) {
 							if (tileSizeY == 4) {
 								tF = weight4[dy];
@@ -3168,25 +3171,31 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 								rF = 1024-lF;
 
 
+								int rounding = ((1<<19)-1);
+
 								// 888 Color blend.
 								int blendT[3];
 								int blendB[3];
 								int blendC[3];
+								int blendCO[3];
 								for (int ch=0; ch<3;ch++) { 
 									blendT[ch] = rgbTL[ch] * lF + rgbTR[ch] * rF; // *1024 scale
 									blendB[ch] = rgbBL[ch] * lF + rgbBR[ch] * rF;
-									blendC[ch] = (blendT[ch] * tF + blendB[ch] * bF) / (1024*1024);
+									blendC[ch]  = ((blendT[ch] * tF + blendB[ch] * bF) + rounding) / (1024*1024);
+									blendCO[ch] = ((blendT[ch] * tF + blendB[ch] * bF)) / (1024*1024);
 								}
 
 								// 666 Color version check : noticed that some tile did pass the test when using 666 color instead of 888 interpolation.
 								int blendT6[3];
 								int blendB6[3];
 								int blendC6[3];
+								int blendC6O[3];
 
 								for (int ch=0; ch<3;ch++) {
 									blendT6[ch] = rgbTL6[ch] * lF + rgbTR6[ch] * rF; // *1024 scale
 									blendB6[ch] = rgbBL6[ch] * lF + rgbBR6[ch] * rF;
-									blendC6[ch] = (blendT6[ch] * tF + blendB6[ch] * bF) / (1024*1024);
+									blendC6[ch] = ((blendT6[ch] * tF + blendB6[ch] * bF) + rounding) / (1024*1024);
+									blendC6O[ch] = ((blendT6[ch] * tF + blendB6[ch] * bF)) / (1024*1024);
 								}
 
 								int idxT = dx + dy*tileSizeX;
@@ -3201,13 +3210,20 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 								if ((abs(rgbCurr[0]-blendC6[0])>rejectFactor) || (abs(rgbCurr[1]-blendC6[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC6[2])>rejectFactor)) {
 									rejectTile6 = true;
 								}
+								if ((abs(rgbCurr[0]-blendCO[0])>rejectFactor) || (abs(rgbCurr[1]-blendCO[1])>rejectFactor)  || (abs(rgbCurr[2]-blendCO[2])>rejectFactor)) {
+									rejectTileO = true;
+								}
+
+								if ((abs(rgbCurr[0]-blendC6O[0])>rejectFactor) || (abs(rgbCurr[1]-blendC6O[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC6O[2])>rejectFactor)) {
+									rejectTile6O = true;
+								}
 							}
 						}
 
 						// --------------------------------------------------------
 						//   If Tile match.
 						// --------------------------------------------------------
-						if (!rejectTile || !rejectTile6) {
+						if ((!rejectTile || !rejectTileO) || (!rejectTile6 || !rejectTile6O)) {
 							int EncodedA[3],EncodedB[3],EncodedC[3],EncodedD[3];
 					
 							for (int n=0; n < 3; n++) {
@@ -3254,31 +3270,32 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 							}
 
 							// Write Top Left
-							int* TL = rejectTile ? rgbTL6 : rgbTL;
-							int* TR = rejectTile ? rgbTR6 : rgbTR;
-							int* BL = rejectTile ? rgbBL6 : rgbBL;
-							int* BR = rejectTile ? rgbBR6 : rgbBR;
+							bool orgTile = (!rejectTile || !rejectTileO);
+							int* TL = orgTile ? rgbTL : rgbTL6;
+							int* TR = orgTile ? rgbTR : rgbTR6;
+							int* BL = orgTile ? rgbBL : rgbBL6;
+							int* BR = orgTile ? rgbBR : rgbBR6;
 
-							if (srcA && !EncodedA[0]) { *wrRgbStream++ = TL[0]; printf("TL\n"); }
+							if (srcA && !EncodedA[0]) { *wrRgbStream++ = TL[0]; /*printf("TL\n");*/ }
 							if (srcB && !EncodedA[1]) { *wrRgbStream++ = TL[1]; }
 							if (srcC && !EncodedA[2]) { *wrRgbStream++ = TL[2]; }
 
 							// Top Right
-							if (srcA && !EncodedB[0]) { *wrRgbStream++ = TR[0]; printf("TR\n"); }
+							if (srcA && !EncodedB[0]) { *wrRgbStream++ = TR[0]; /*printf("TR\n");*/ }
 							if (srcB && !EncodedB[1]) { *wrRgbStream++ = TR[1]; }
 							if (srcC && !EncodedB[2]) { *wrRgbStream++ = TR[2]; }
 
 							// Bottom Left
-							if (srcA && !EncodedC[0]) { *wrRgbStream++ = BL[0]; printf("BL\n"); }
+							if (srcA && !EncodedC[0]) { *wrRgbStream++ = BL[0]; /*printf("BL\n");*/ }
 							if (srcB && !EncodedC[1]) { *wrRgbStream++ = BL[1]; }
 							if (srcC && !EncodedC[2]) { *wrRgbStream++ = BL[2]; }
 
 							// Bottom Right
-							if (srcA && !EncodedD[0]) { *wrRgbStream++ = BR[0];  printf("BR\n");}
+							if (srcA && !EncodedD[0]) { *wrRgbStream++ = BR[0]; /*printf("BR\n");*/ }
 							if (srcB && !EncodedD[1]) { *wrRgbStream++ = BR[1]; }
 							if (srcC && !EncodedD[2]) { *wrRgbStream++ = BR[2]; }
 
-							printf("[%i,%i] -> %i\n",x,y,(wrRgbStream - rgbStream) / 3);
+//							printf("[%i,%i] -> %i\n",x,y,(wrRgbStream - rgbStream) / 3);
 
 							/*
 							printf("Tile Color TL : %i,%i,%i\n",TL[0],TL[1],TL[2]);
@@ -4605,13 +4622,22 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 						corr3D_colorStream[streamColorCnt++] = bb3.z1>>0;
 
 						// Bitmap stream...
-						if (tileSizeX == 8 && tileSizeY == 8) {
-							corr3D_sizeT8Map[tileCnt>>3] |= 1<<(tileCnt&7);
+						if (tileSizeX == 8) {
+							switch (tileSizeY) {
+							case 4: corr3D_sizeT8_4Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
+							case 8: corr3D_sizeT8_8Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
+							case 16: corr3D_sizeT8_16Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
+							}
 						} else {
-
-							// TODO : tileSizeX only 8 or tileY only 8
-							if ((tileSizeX == 4) && (tileSizeY == 4)) {
-								corr3D_sizeT4Map[tileCnt>>3] |= 1<<(tileCnt&7);
+							if (tileSizeX == 16) {
+								switch (tileSizeY) {
+								case 8: corr3D_sizeT16_8Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
+								}
+							} else { // 4
+								switch (tileSizeY) {
+								case 4: corr3D_sizeT4_4Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
+								case 8: corr3D_sizeT4_8Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
+								}
 							}
 						}
 
@@ -4673,17 +4699,32 @@ void EncoderContext::StartCorrelationSearch3D() {
 	streamColorCnt = 0;
 	streamTypeCnt  = 0;
 
-	int sizeT8Map = (size / 64) / 8;
-	int sizeT4Map = (size / 16) / 8;
-	int maxTileCount = (size / 64) + (size / 16);
+	int sizeT16_8Map	= (size /128) / 8;
+	int sizeT8_16Map	= (size /128) / 8;
+	int sizeT8_8Map		= (size / 64) / 8;
+	int sizeT4_8Map		= (size / 32) / 8;
+	int sizeT8_4Map		= (size / 32) / 8;
+	int sizeT4_4Map		= (size / 16) / 8;
+
+	int maxTileCount	= (size / 64) + (size / 16);
 
 	corr3D_stream5Bit = new u8[size];
 	corr3D_stream4Bit = new u8[size];
 	corr3D_stream3Bit = new u8[size];
-	corr3D_sizeT8Map  = new u8[sizeT8Map];
-	corr3D_sizeT4Map  = new u8[sizeT4Map];
-	memset(corr3D_sizeT8Map, 0, sizeT8Map);
-	memset(corr3D_sizeT4Map, 0, sizeT4Map);
+
+	corr3D_sizeT16_8Map  = new u8[sizeT16_8Map];
+	corr3D_sizeT8_16Map  = new u8[sizeT8_16Map];
+	corr3D_sizeT8_8Map   = new u8[sizeT8_8Map];
+	corr3D_sizeT8_4Map   = new u8[sizeT8_4Map];
+	corr3D_sizeT4_8Map   = new u8[sizeT4_8Map];
+	corr3D_sizeT4_4Map   = new u8[sizeT4_4Map];
+
+	memset(corr3D_sizeT16_8Map, 0, sizeT16_8Map);
+	memset(corr3D_sizeT8_16Map, 0, sizeT8_16Map);
+	memset(corr3D_sizeT8_8Map , 0, sizeT8_8Map);
+	memset(corr3D_sizeT8_4Map , 0, sizeT8_4Map);
+	memset(corr3D_sizeT4_8Map , 0, sizeT4_8Map);
+	memset(corr3D_sizeT4_4Map , 0, sizeT4_4Map);
 
 	// Unique for everybody... just one pass after another...
 	corr3D_tileStreamTileType = new u16[maxTileCount];	// 8 BIT TYPE, 6 BIT PATTERN POSITION.
@@ -4697,15 +4738,37 @@ void EncoderContext::EndCorrelationSearch3D() {
 	u8* pZStdStream = new u8[10000000];
 
 	int size = original->GetWidth() * original->GetHeight();
-	int sizeT8Map = (size / 64) / 8;
-	int sizeT4Map = (size / 16) / 8;
+	// TODO : Make sure alignment is ok internally...
+//	?;
+	int sizeT16_8Map	= (size /128) / 8;
+	int sizeT8_16Map	= (size /128) / 8;
+	int sizeT8_8Map		= (size / 64) / 8;
+	int sizeT4_8Map		= (size / 32) / 8;
+	int sizeT8_4Map		= (size / 32) / 8;
+	int sizeT4_4Map		= (size / 16) / 8;
 
 	size_t result;
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT8Map,sizeT8Map, 18);
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT16_8Map,sizeT16_8Map, 18);
+	printf("T16_8 Map : %i\n",(int)result);
+	fileOutSize += result;
+
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT8_16Map,sizeT8_16Map, 18);
+	printf("T4 Map : %i\n",(int)result);
+	fileOutSize += result;
+
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT8_8Map,sizeT8_8Map, 18);
 	printf("T8 Map : %i\n",(int)result);
 	fileOutSize += result;
 
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT4Map,sizeT4Map, 18);
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT4_8Map,sizeT4_8Map, 18);
+	printf("T4 Map : %i\n",(int)result);
+	fileOutSize += result;
+
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT8_4Map,sizeT8_4Map, 18);
+	printf("T8 Map : %i\n",(int)result);
+	fileOutSize += result;
+
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT4_4Map,sizeT4_4Map, 18);
 	printf("T4 Map : %i\n",(int)result);
 	fileOutSize += result;
 
@@ -4758,8 +4821,13 @@ void EncoderContext::EndCorrelationSearch3D() {
 	delete [] corr3D_stream5Bit;
 	delete [] corr3D_stream4Bit;
 	delete [] corr3D_stream3Bit;
-	delete [] corr3D_sizeT8Map;
-	delete [] corr3D_sizeT4Map;
+
+	delete [] corr3D_sizeT16_8Map;
+	delete [] corr3D_sizeT8_16Map;
+	delete [] corr3D_sizeT8_8Map;
+	delete [] corr3D_sizeT8_4Map;
+	delete [] corr3D_sizeT4_8Map;
+	delete [] corr3D_sizeT4_4Map;
 
 	delete [] corr3D_tileStreamTileType;
 	delete [] corr3D_colorStream;
@@ -4988,7 +5056,7 @@ void EncoderContext::convert(const char* outputFile) {
 		// --------------------------------------------------------------
 		// Find 3D Tile matching...
 		// --------------------------------------------------------------
-#if 0
+#if 1
 		RegisterAndCreate3DLut();
 
 

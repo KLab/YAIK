@@ -12,11 +12,6 @@
 
 #include "YAIK.h"
 
-struct Size {
-	u16				w;
-	u16				h;
-};
-
 struct BoundingBox {
 	s16				x;
 	s16				y;
@@ -38,6 +33,8 @@ struct YAIK_Instance {
 	u8*				mapRGB;
 	u8*				mapRGBMask;
 	u8*				tile4x4Mask;
+	u32				sizeMapMask;
+	u32				tile4x4MaskSize;
 	BoundingBox		maskBBox;
 
 	u8*				alphaChannel;			// 8 Bit Alpha Channel
@@ -53,6 +50,7 @@ struct YAIK_Instance {
 	u16				tileHeight;
 	u16				strideRGBMap;
 	bool			isRGBA;
+	bool			singleRGB;
 };
 
 struct YAIK_Library {

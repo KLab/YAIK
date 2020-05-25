@@ -42,11 +42,17 @@ public:
 	,corr3D_stream5Bit			(NULL)
 	,corr3D_stream4Bit			(NULL)
 	,corr3D_stream3Bit			(NULL)
-	,corr3D_sizeT8Map			(NULL)
-	,corr3D_sizeT4Map			(NULL)
+	,corr3D_sizeT8_16Map		(NULL)
+	,corr3D_sizeT16_8Map		(NULL)
+	,corr3D_sizeT8_8Map			(NULL)
+	,corr3D_sizeT8_4Map			(NULL)
+	,corr3D_sizeT4_8Map			(NULL)
+	,corr3D_sizeT4_4Map			(NULL)
 	,corr3D_tileStreamTileType	(NULL)
 	,corr3D_colorStream			(NULL)
-	{}
+	{
+
+	}
 
 	// Color block stream is swizzled.
 	bool isSwizzling;
@@ -128,8 +134,12 @@ protected:
 	u8*  corr3D_stream5Bit;
 	u8*  corr3D_stream4Bit;
 	u8*  corr3D_stream3Bit;
-	u8*  corr3D_sizeT8Map;
-	u8*  corr3D_sizeT4Map;
+	u8*  corr3D_sizeT8_16Map;
+	u8*  corr3D_sizeT16_8Map;
+	u8*  corr3D_sizeT8_8Map;
+	u8*  corr3D_sizeT8_4Map;
+	u8*  corr3D_sizeT4_8Map;
+	u8*  corr3D_sizeT4_4Map;
 	u16* corr3D_tileStreamTileType;
 	u8*  corr3D_colorStream;
 	int stream3BitCnt;

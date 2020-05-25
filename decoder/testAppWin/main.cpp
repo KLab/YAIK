@@ -11,6 +11,14 @@ __int64 CounterStart = 0;
 #include <stdio.h>
 #include "../../include/YAIK_private.h"
 
+#ifndef YAIK_DEVEL 
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#endif
+#define STBI_ONLY_PNG
+#include "../../external/stb_image/stb_image.h"
+#include "../../external/stb_image/stb_image_write.h"
+
 void StartCounter()
 {
     LARGE_INTEGER li;
@@ -47,8 +55,21 @@ int main()
 		fread(fileData, fileLength, 1, f);
 		fclose(f);
 
+//		u8* pngFileData;
+//		u32 pngFileLength;
+		{
+//			FILE* f = fopen("Aqours_43101005.png", "rb");
+//			fseek(f, 0, SEEK_END);
+//			pngFileLength = ftell(f);
+//			fseek(f, 0, SEEK_SET);
+
+//			pngFileData = new u8[pngFileLength];
+//			fread(pngFileData, pngFileLength, 1, f);
+//			fclose(f);
+		}
+
 		int n = 0;
-		for (int n=0; n < 100; n++) 
+		for (int n=0; n < 25; n++) 
 		{
 			printf("---%i----\n",n);
 
@@ -56,7 +77,7 @@ int main()
 
 				int imgSize = imageInfo.width * imageInfo.height * (imageInfo.hasAlpha ? 4 : 3);
 				u8* destinationRGB = new u8[imgSize];
-				memset(destinationRGB, 0xCC, imgSize );
+				memset(destinationRGB, 0x0, imgSize );
 
 				imageInfo.outputImage			= destinationRGB;
 				imageInfo.outputImageStride		= imageInfo.width * (imageInfo.hasAlpha ? 4 : 3);
@@ -65,13 +86,14 @@ int main()
 				YAIK_DecodeImage(fileData, fileLength, &imageInfo);
 				printf("Millisecond %f\n",(float)GetCounter());
 
-				/*
-				StartCounter();
-				int x,y,c;
-				u8* buffer = stbi_load_from_memory(fileDataPNG,fileLengthPNG,&x,&y,&c,4);
-				printf("P %f\n",(float)GetCounter());
-				delete[] buffer;
-				*/
+//				StartCounter();
+//				int x,y,c;
+//				u8* buffer = stbi_load_from_memory(pngFileData,pngFileLength,&x,&y,&c,3);
+//				printf("P %i %i %f\n",buffer[0],buffer[imageInfo.width * imageInfo.height * 3 - 1],(float)GetCounter());
+//				int err = stbi_write_png("test.png", imageInfo.width, imageInfo.height, imageInfo.hasAlpha ? 4 : 3 , buffer, imageInfo.width * imageInfo.hasAlpha ? 4 : 3);
+
+//				delete[] buffer;
+
 				delete[] destinationRGB;
 			}
 		};

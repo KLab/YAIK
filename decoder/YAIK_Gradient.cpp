@@ -2,8 +2,9 @@
 
 #include <stdio.h>
 
+// [TODO] : Write document about Gradient representation (PDF ?) and link to documentation folder.
+// [TODO] : tile4x4Mask is using a different stride when image is NOT a multiple of 16 pixel. Implementation rely on x8 stride for now. MUST use x16 aligned stride !
 //
-// TODO : Optimize Gradient order using Z Curve / Swizzling.
 // Because of swizzling, table representation is larger than bitmap representation. (Don't want image to be x64)
 //
 // 16x16 : 16 bit table (64x64 pixel) -> Lookup the table by block of 4x4 tile. -> Allow 16/4 skip
@@ -13,6 +14,7 @@
 //  8x 4 : 64 bit table (64x32 pixel) -> Lookup the table by block of 8x8 tile.
 //  4x 8 : 64 bit table (32x64 pixel) -> Lookup the table by block of 8x8 tile.
 //  4x 4 : 64 bit table (32x32 pixel) -> Lookup the table by block of 8x8 tile.
+//
 
 void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTilebitmap, u8* dataUncompressedRGB, u8* planeR, u8* planeG, u8* planeB, u8 planeBit) {
 	if (planeBit != 7) {
@@ -21,34 +23,35 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 		}
 	}
 
-	u16 iw		= pInstance->width;
-	u16 ih		= pInstance->height;
-	u32 tileWord= 0;
-
-	u8* mapRGB = pInstance->mapRGB;
-	u8* hasRGB = pInstance->mapRGBMask;
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u32 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasRGB		= pInstance->mapRGBMask;
 
 	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
 	// For now Intel and Arm devices mainly use the little-endian.
 
-	u16* tileBitmap = (u16*)dataUncompressedTilebitmap;
+	int idxX;
+	int idxY		= 0;
+	u16* tileBitmap	= (u16*)dataUncompressedTilebitmap;
+	u8* pixelUsed	= pInstance->tile4x4Mask;
+	int strideY16	= (pInstance->strideRGBMap * 4);
+	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
+	int strideTile	= (iw>>3);
+	int strideTile4 = RDIV16(iw);
 
 	// RGB Version Only.
 
-	int idxY = 0;
-	int idxX;
-	int strideY16 = (pInstance->strideRGBMap * 4);
-	int strideY64 = (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
-	int strideTile = (iw>>3)<<6;
-	for (u16 y=0; y<ih; y+=64) {
+	for (u16 y=0; y<(ih>>4); y+=4) {
 		idxX = idxY;
-		for (u16 x=0; x<iw; x+=64) {
+		for (u16 x=0; x<(iw>>4); x+=4) {
 			u16 tWord = *tileBitmap++;
 
 			// Early skip ! 16 tile if nothing.
 			if (tWord) {
 				int idxY2 = idxX;
-				for (u16 yt=y; yt<y+64; yt+=16) {
+				for (u16 yt=y; yt<y+4; yt++) {
 					if (yt >= ih) { break; } // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next horizontal...
 
 					int msk = tWord & 0xF;
@@ -65,7 +68,7 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 					}
 
 					int idxX2 = idxY2;
-					for (u16 xt=x; xt<x+64; xt+=16) {
+					for (u16 xt=x; xt<x+4; xt++) {
 						if ((xt >= iw) || (msk == 0)) {
 							break; 
 						} // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next vertical...
@@ -77,9 +80,9 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 
 							rgbCorner[0] = pCornerRGB;
 
-							int v = (1<<(idxX2 & 7));
-							if ((hasRGB[idxX2>>3] & v)==0) {
-								hasRGB[idxX2>>3] |= v;
+							int v = 1<<MOD8(idxX2);
+							if ((hasRGB[DIV8(idxX2)] & v)==0) {
+								hasRGB[DIV8(idxX2)] |= v;
 								// Load LT
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -87,9 +90,9 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							}
 
 							int tmpIdx = idxX2+4;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RT
 								pCornerRGB[12] = *dataUncompressedRGB++;
 								pCornerRGB[13] = *dataUncompressedRGB++;
@@ -100,9 +103,9 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							rgbCorner[1] = pCornerRGB;
 
 							tmpIdx = idxX2 + strideY16;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load LB
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -110,9 +113,9 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							}
 
 							tmpIdx += 4;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RB
 								pCornerRGB[12] = *dataUncompressedRGB++;
 								pCornerRGB[13] = *dataUncompressedRGB++;
@@ -130,7 +133,14 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							// Decompress 2x 8x8 Left and Right tile in loop.
 							//
 
-							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
+							int idxTilePlane = ((yt*strideTile) + xt)<<(1+6); // Shift 1 because tile 16 to 8, then x64 for pixel count.
+
+							// Left-Right Top
+							// Left-Right Bottom
+							int idxMapTile4  = xt + (yt<<1)*strideTile4;
+							pixelUsed[idxMapTile4            ]	= 0xFF;
+							pixelUsed[idxMapTile4+strideTile4]	= 0xFF;
+
 							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
 								u8* tileGL = &planeG[idxTilePlane];
@@ -159,7 +169,7 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 									tileGL += 8;
 									tileBL += 8;
 								}
-								idxTilePlane += strideTile;
+								idxTilePlane += strideTile<<6;
 							}
 						}
 						msk >>= 1;
@@ -181,25 +191,25 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 		}
 	}
 
-	u16 iw		= pInstance->width;
-	u16 ih		= pInstance->height;
-	u32 tileWord= 0;
-
-	u8* mapRGB = pInstance->mapRGB;
-	u8* hasRGB = pInstance->mapRGBMask;
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u32 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasRGB		= pInstance->mapRGBMask;
 
 	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
 	// For now Intel and Arm devices mainly use the little-endian.
 
+	int idxX;
+	int idxY		= 0;
 	u32* tileBitmap = (u32*)dataUncompressedTilebitmap;
+	u8* pixelUsed	= pInstance->tile4x4Mask;
+	int strideY8	= (pInstance->strideRGBMap * 2);
+	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
+	int strideTile	= (iw>>3)<<6;
 
 	// RGB Version Only.
 
-	int idxY = 0;
-	int idxX;
-	int strideY8  = (pInstance->strideRGBMap * 2);
-	int strideY64 = (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
-	int strideTile = (iw>>3)<<6;
 	for (u16 y=0; y<ih; y+=64) {
 		idxX = idxY;
 		for (u16 x=0; x<iw; x+=64) {
@@ -263,9 +273,9 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 
 							rgbCorner[0] = pCornerRGB;
 
-							int v = (1<<(idxX2 & 7));
-							if ((hasRGB[idxX2>>3] & v)==0) {
-								hasRGB[idxX2>>3] |= v;
+							int v = 1<<MOD8(idxX2);
+							if ((hasRGB[DIV8(idxX2)] & v)==0) {
+								hasRGB [DIV8(idxX2)]|= v;
 								// Load LT
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -273,9 +283,9 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							}
 
 							int tmpIdx = idxX2+4;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RT
 								pCornerRGB[12] = *dataUncompressedRGB++;
 								pCornerRGB[13] = *dataUncompressedRGB++;
@@ -286,9 +296,9 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							rgbCorner[1] = pCornerRGB;
 
 							tmpIdx = idxX2 + strideY8;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load LB
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -296,9 +306,9 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							}
 
 							tmpIdx += 4;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RB
 								pCornerRGB[12] = *dataUncompressedRGB++;
 								pCornerRGB[13] = *dataUncompressedRGB++;
@@ -317,6 +327,9 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							//
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
+
+							pixelUsed[idxTilePlane>>7] = 0xFF;
+
 							u8* tileRL = &planeR[idxTilePlane];
 							u8* tileGL = &planeG[idxTilePlane];
 							u8* tileBL = &planeB[idxTilePlane];
@@ -365,25 +378,25 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 		}
 	}
 
-	u16 iw		= pInstance->width;
-	u16 ih		= pInstance->height;
-	u32 tileWord= 0;
-
-	u8* mapRGB = pInstance->mapRGB;
-	u8* hasRGB = pInstance->mapRGBMask;
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u32 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasRGB		= pInstance->mapRGBMask;
 
 	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
 	// For now Intel and Arm devices mainly use the little-endian.
 
-	u32* tileBitmap = (u32*)dataUncompressedTilebitmap;
+	int idxX;
+	int idxY		= 0;
+	u32* tileBitmap	= (u32*)dataUncompressedTilebitmap;
+	u8* pixelUsed	= pInstance->tile4x4Mask;
+	int strideY16	= (pInstance->strideRGBMap * 4);
+	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
+	int strideTile	= (iw>>3)<<6;
 
 	// RGB Version Only.
 
-	int idxY = 0;
-	int idxX;
-	int strideY16 = (pInstance->strideRGBMap * 4);
-	int strideY64 = (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
-	int strideTile = (iw>>3)<<6;
 	for (u16 y=0; y<ih; y+=64) {
 		idxX = idxY;
 		for (u16 x=0; x<iw; x+=64) {
@@ -444,9 +457,9 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 
 							rgbCorner[0] = pCornerRGB;
 
-							int v = (1<<(idxX2 & 7));
-							if ((hasRGB[idxX2>>3] & v)==0) {
-								hasRGB[idxX2>>3] |= v;
+							int v = 1<<MOD8(idxX2);
+							if ((hasRGB[DIV8(idxX2)] & v)==0) {
+								hasRGB [DIV8(idxX2)]|= v;
 								// Load LT
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -454,9 +467,9 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							}
 
 							int tmpIdx = idxX2+2;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RT
 								pCornerRGB[6] = *dataUncompressedRGB++;
 								pCornerRGB[7] = *dataUncompressedRGB++;
@@ -467,9 +480,9 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							rgbCorner[1] = pCornerRGB;
 
 							tmpIdx = idxX2 + strideY16;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load LB
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -477,9 +490,9 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							}
 
 							tmpIdx += 2;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RB
 								pCornerRGB[6] = *dataUncompressedRGB++;
 								pCornerRGB[7] = *dataUncompressedRGB++;
@@ -498,6 +511,11 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							//
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
+							
+							u8 v8 = (xt & 8) ? 0xF0 : 0x0F;
+							pixelUsed[idxTilePlane>>7]				|= v8;
+							pixelUsed[(idxTilePlane+strideTile)>>7]	|= v8;
+
 							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
 								u8* tileGL = &planeG[idxTilePlane];
@@ -547,25 +565,25 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 		}
 	}
 
-	u16 iw		= pInstance->width;
-	u16 ih		= pInstance->height;
-	u64 tileWord= 0;
-
-	u8* mapRGB = pInstance->mapRGB;
-	u8* hasRGB = pInstance->mapRGBMask;
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u64 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasRGB		= pInstance->mapRGBMask;
 
 	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
 	// For now Intel and Arm devices mainly use the little-endian.
 
+	int idxX;
+	int idxY		= 0;
 	u64* tileBitmap = (u64*)dataUncompressedTilebitmap;
+	u8* pixelUsed	= pInstance->tile4x4Mask;
+	int strideY8	= (pInstance->strideRGBMap * 2);
+	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
+	int strideTile	= (iw>>3)<<6;
 
 	// RGB Version Only.
 
-	int idxY = 0;
-	int idxX;
-	int strideY8  = (pInstance->strideRGBMap * 2);
-	int strideY64 = (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
-	int strideTile = (iw>>3)<<6;
 	for (u16 y=0; y<ih; y+=64) {
 		idxX = idxY;
 		for (u16 x=0; x<iw; x+=64) {
@@ -632,9 +650,9 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 
 							rgbCorner[0] = pCornerRGB;
 
-							int v = (1<<(idxX2 & 7));
-							if ((hasRGB[idxX2>>3] & v)==0) {
-								hasRGB[idxX2>>3] |= v;
+							int v = 1<<MOD8(idxX2);
+							if ((hasRGB[DIV8(idxX2)] & v)==0) {
+								hasRGB [DIV8(idxX2)]|= v;
 								// Load LT
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -642,9 +660,9 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							}
 
 							int tmpIdx = idxX2+2;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RT
 								pCornerRGB[6] = *dataUncompressedRGB++;
 								pCornerRGB[7] = *dataUncompressedRGB++;
@@ -655,9 +673,9 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							rgbCorner[1] = pCornerRGB;
 
 							tmpIdx = idxX2 + strideY8;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load LB
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -665,9 +683,9 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							}
 
 							tmpIdx += 2;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RB
 								pCornerRGB[6] = *dataUncompressedRGB++;
 								pCornerRGB[7] = *dataUncompressedRGB++;
@@ -686,6 +704,8 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							//
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
+							pixelUsed[idxTilePlane>>7] |= (xt & 8) ? 0xF0 : 0x0F;
+
 //							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
 								u8* tileGL = &planeG[idxTilePlane];
@@ -737,25 +757,25 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 		}
 	}
 
-	u16 iw		= pInstance->width;
-	u16 ih		= pInstance->height;
-	u64 tileWord= 0;
-
-	u8* mapRGB = pInstance->mapRGB;
-	u8* hasRGB = pInstance->mapRGBMask;
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u64 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasRGB		= pInstance->mapRGBMask;
 
 	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
 	// For now Intel and Arm devices mainly use the little-endian.
 
-	u64* tileBitmap = (u64*)dataUncompressedTilebitmap;
+	int idxX;
+	int idxY		= 0;
+	u64* tileBitmap	= (u64*)dataUncompressedTilebitmap;
+	u8* pixelUsed	= pInstance->tile4x4Mask;
+	int strideY4	= (pInstance->strideRGBMap    );
+	int strideY32	= (pInstance->strideRGBMap * 8); // 8 block of 4 pixel = skip 32.
+	int strideTile	= (iw>>3)<<6;
 
 	// RGB Version Only.
 
-	int idxY = 0;
-	int idxX;
-	int strideY4  = (pInstance->strideRGBMap    );
-	int strideY32 = (pInstance->strideRGBMap * 8); // 8 block of 4 pixel = skip 32.
-	int strideTile = (iw>>3)<<6;
 	for (u16 y=0; y<ih; y+=32) {
 		idxX = idxY;
 		for (u16 x=0; x<iw; x+=64) {
@@ -821,9 +841,9 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 
 							rgbCorner[0] = pCornerRGB;
 
-							int v = (1<<(idxX2 & 7));
-							if ((hasRGB[idxX2>>3] & v)==0) {
-								hasRGB[idxX2>>3] |= v;
+							int v = 1<<MOD8(idxX2);
+							if ((hasRGB[DIV8(idxX2)] & v)==0) {
+								hasRGB [DIV8(idxX2)]|= v;
 								// Load LT
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -831,9 +851,9 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							}
 
 							int tmpIdx = idxX2+2;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RT
 								pCornerRGB[6] = *dataUncompressedRGB++;
 								pCornerRGB[7] = *dataUncompressedRGB++;
@@ -844,9 +864,9 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							rgbCorner[1] = pCornerRGB;
 
 							tmpIdx = idxX2 + strideY4;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load LB
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -854,9 +874,9 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							}
 
 							tmpIdx += 2;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RB
 								pCornerRGB[6] = *dataUncompressedRGB++;
 								pCornerRGB[7] = *dataUncompressedRGB++;
@@ -871,6 +891,10 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							*/
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + ((yt & 4)<<3); // ((yt & 4)<<3) = Odd / Even Tile vertically (4x8)
+
+							u8 v8 = 0x03<<((yt & 4)>>1);	// 0 or 2
+							pixelUsed[idxTilePlane>>7] |= v8<<((xt & 8)>>1); // Shift 0/2 for Y Axis, then 0/4 for X Axis.
+
 //							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
 								u8* tileGL = &planeG[idxTilePlane];
@@ -920,25 +944,25 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 		}
 	}
 
-	u16 iw		= pInstance->width;
-	u16 ih		= pInstance->height;
-	u64 tileWord= 0;
-
-	u8* mapRGB = pInstance->mapRGB;
-	u8* hasRGB = pInstance->mapRGBMask;
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u64 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasRGB		= pInstance->mapRGBMask;
 
 	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
 	// For now Intel and Arm devices mainly use the little-endian.
 
-	u64* tileBitmap = (u64*)dataUncompressedTilebitmap;
+	int idxX;
+	int idxY		= 0;
+	u64* tileBitmap	= (u64*)dataUncompressedTilebitmap;
+	u8* pixelUsed	= pInstance->tile4x4Mask;
+	int strideY8	= (pInstance->strideRGBMap * 2);
+	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
+	int strideTile	= (iw>>3)<<6;
 
 	// RGB Version Only.
 
-	int idxY = 0;
-	int idxX;
-	int strideY8  = (pInstance->strideRGBMap * 2);
-	int strideY64 = (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
-	int strideTile = (iw>>3)<<6;
 	for (u16 y=0; y<ih; y+=64) {
 		idxX = idxY;
 		for (u16 x=0; x<iw; x+=32) {
@@ -1005,9 +1029,9 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 
 							rgbCorner[0] = pCornerRGB;
 
-							int v = (1<<(idxX2 & 7));
-							if ((hasRGB[idxX2>>3] & v)==0) {
-								hasRGB[idxX2>>3] |= v;
+							int v = 1<<MOD8(idxX2);
+							if ((hasRGB[DIV8(idxX2)] & v)==0) {
+								hasRGB [DIV8(idxX2)]|= v;
 								// Load LT
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1015,9 +1039,9 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							}
 
 							int tmpIdx = idxX2+1;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RT
 								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1028,9 +1052,9 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							rgbCorner[1] = pCornerRGB;
 
 							tmpIdx = idxX2 + strideY8;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load LB
 								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1038,9 +1062,9 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							}
 
 							tmpIdx++;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
 								// Load RB
 								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1054,11 +1078,12 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
 							*/
 
-							//
-							// Decompress 2x 8x8 Left and Right tile in loop.
-							//
-
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4);
+							
+							int idxPix = (xt>>4) + ((yt>>3) * (strideTile>>7));
+							int v8 = (0x5)<<(((xt & 0x4)>>2)|((xt & 0x8)>>1));
+							pixelUsed[idxPix] |= v8; // Shift 0/1/2/3 for X Axis.
+
 //							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
 								u8* tileGL = &planeG[idxTilePlane];
@@ -1101,21 +1126,1100 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 	}
 }
 
-void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebitmap, u8* dataUncompressedRGB, u8* planeR, u8* planeG, u8* planeB, u8 planeBit) {
-	if (planeBit != 7) {
-		return ;
+//
+// Internal Implementation for specialized versions.
+//
+void DecompressGradient4x4RG					(YAIK_Instance* pInstance,u8* dataUncompressedTilebitmap,u8* dataUncompressedRGB,u8* planeR,u8* planeG);												
+void DecompressGradient4x4GB					(YAIK_Instance* pInstance,u8* dataUncompressedTilebitmap,u8* dataUncompressedRGB,u8* planeG,u8* planeB);												
+void DecompressGradient4x4RB					(YAIK_Instance* pInstance,u8* dataUncompressedTilebitmap,u8* dataUncompressedRGB,u8* planeR,u8* planeB);
+void DecompressGradient4x4R						(YAIK_Instance* pInstance,u8* dataUncompressedTilebitmap,u8* dataUncompressedRGB,u8* planeR);
+void DecompressGradient4x4G						(YAIK_Instance* pInstance,u8* dataUncompressedTilebitmap,u8* dataUncompressedRGB,u8* planeG);
+void DecompressGradient4x4B						(YAIK_Instance* pInstance,u8* dataUncompressedTilebitmap,u8* dataUncompressedRGB,u8* planeB);
 
-		// Not suppored yet.
-		while (1) {
-		}
+void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebitmap, u8* dataUncompressedRGB, u8* planeR, u8* planeG, u8* planeB, u8 planeBit) {
+	switch (planeBit) {
+	case 0: return; // Impossible (no data)
+	case 1:
+		DecompressGradient4x4R (pInstance,dataUncompressedTilebitmap,dataUncompressedRGB,planeR);			return;
+	case 2:
+		DecompressGradient4x4G (pInstance,dataUncompressedTilebitmap,dataUncompressedRGB,planeG);			return;
+	case 3:
+		DecompressGradient4x4RG(pInstance,dataUncompressedTilebitmap,dataUncompressedRGB,planeR,planeG);	return;
+	case 4:
+		DecompressGradient4x4B (pInstance,dataUncompressedTilebitmap,dataUncompressedRGB,planeB);			return;
+	case 5:
+		DecompressGradient4x4RB(pInstance,dataUncompressedTilebitmap,dataUncompressedRGB,planeR,planeB);	return;
+	case 6:
+		DecompressGradient4x4GB(pInstance,dataUncompressedTilebitmap,dataUncompressedRGB,planeG,planeB);	return;
+	default:
+		// 7,this use case...
+		break;
 	}
+
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u64 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasRGB		= pInstance->mapRGBMask;
+
+	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
+	// For now Intel and Arm devices mainly use the little-endian.
+
+	int idxX;
+	int idxY		= 0;
+	u64* tileBitmap	= (u64*)dataUncompressedTilebitmap;
+	u8* pixelUsed	= pInstance->tile4x4Mask;
+	int strideY4	= pInstance->strideRGBMap;
+	int strideY32	= pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
+	int strideTile	= (iw>>3)<<6;
+
+	// RGB Version Only.
+
+	for (u16 y=0; y<ih; y+=32) {
+		idxX = idxY;
+		for (u16 x=0; x<iw; x+=32) {
+			u64 tWord = *tileBitmap++;
+
+			// Early skip ! 64 tile if nothing.
+			if (tWord) {
+				int idxY2 = idxX;
+				u16 yt    = y;
+
+				// If nothing if upper 32 tile, early jump.
+				if ((tWord & 0xFFFFFFFF) == 0) {
+					tWord >>= 32;
+					yt     += 16;
+					idxY2  += strideY4<<2; // 4*4
+				}
+
+				if ((tWord & 0xFFFF) == 0) {
+					tWord >>= 16;
+					yt     += 8;
+					idxY2  += strideY4<<1; // 2*4
+				}
+
+				for (; yt<y+32; yt+=4) {
+					if (yt >= ih) { break; } // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next horizontal...
+
+					int msk = tWord & 0xFF;
+					tWord >>=8;
+
+					// Early skip, 4 tiles if nothing.
+					if (msk == 0) {
+						if (tWord == 0) { // Completed the tile early.
+							break;
+						} else {
+							idxY2 += strideY4;
+							continue; 
+						}
+					}
+
+					u16 xt=x;
+					int idxX2 = idxY2;
+
+					if ((msk & 0xF) == 0) {
+						msk  >>= 4;		// 4 Tile of 4 pixel
+						idxX2 += 4;		// 2 Tile of 2 colors
+						xt    += 16;	// 16 Pixel on screen.
+					}
+
+					if ((msk & 0x3) == 0) {
+						msk  >>= 2;		// 2 Tile of 4 pixel
+						idxX2 += 2;		// 1 Tile of 2 colors
+						xt    += 8;		// 8 Pixel on screen.
+					}
+
+					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+
+					for (;xt<x+32; xt+=4) {
+						if ((xt >= iw) || (msk == 0)) {
+							break; 
+						} // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next vertical...
+
+						if (msk & 1) {
+							u8* pCornerRGB = &mapRGB[idxX2*3];
+							// Extract 4 RGB Edges.
+							u8* rgbCorner[2];
+
+							rgbCorner[0] = pCornerRGB;
+
+							int v = 1<<MOD8(idxX2);
+							if ((hasRGB[DIV8(idxX2)] & v)==0) {
+								hasRGB [DIV8(idxX2)]|= v;
+								// Load LT
+								pCornerRGB[0] = *dataUncompressedRGB++;
+								pCornerRGB[1] = *dataUncompressedRGB++;
+								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							int tmpIdx = idxX2+1;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
+								// Load RT
+								pCornerRGB[3] = *dataUncompressedRGB++;
+								pCornerRGB[4] = *dataUncompressedRGB++;
+								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							pCornerRGB += strideY4 * 3;
+							rgbCorner[1] = pCornerRGB;
+
+							tmpIdx = idxX2 + strideY4;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
+								// Load LB
+								pCornerRGB[0] = *dataUncompressedRGB++;
+								pCornerRGB[1] = *dataUncompressedRGB++;
+								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							tmpIdx++;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasRGB[DIV8(tmpIdx)] & v)==0) {
+								hasRGB [DIV8(tmpIdx)]|= v;
+								// Load RB
+								pCornerRGB[3] = *dataUncompressedRGB++;
+								pCornerRGB[4] = *dataUncompressedRGB++;
+								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							/*
+							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
+							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
+							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
+							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
+							*/
+
+							//
+							// Decompress 2x 8x8 Left and Right tile in loop.
+							//
+
+							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
+
+							pixelUsed[idxTilePlane>>7] |= til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1)); // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+
+//							for (int tileY=0; tileY <16; tileY+=8) {
+								u8* tileRL = &planeR[idxTilePlane];
+								u8* tileGL = &planeG[idxTilePlane];
+								u8* tileBL = &planeB[idxTilePlane];
+								for (int ty=0; ty < 4; ty++) {
+									int nW = 4-ty;
+									// Vertical Blend
+									int rL = (rgbCorner[0][0] * nW) + (rgbCorner[1][0] * ty);
+									int gL = (rgbCorner[0][1] * nW) + (rgbCorner[1][1] * ty);
+									int bL = (rgbCorner[0][2] * nW) + (rgbCorner[1][2] * ty);
+									int rR = (rgbCorner[0][3] * nW) + (rgbCorner[1][3] * ty);
+									int gR = (rgbCorner[0][4] * nW) + (rgbCorner[1][4] * ty);
+									int bR = (rgbCorner[0][5] * nW) + (rgbCorner[1][5] * ty);
+
+									// Horizontal blending...
+									// 16 Color Line Left Tile
+									tileRL[0] = rL>>2;	tileRL[1] = (rL*3 + rR)>>4; tileRL[2] = (rL + rR)>>3; tileRL[3] = (rL + rR*3)>>4;
+									tileGL[0] = gL>>2;	tileGL[1] = (gL*3 + gR)>>4; tileGL[2] = (gL + gR)>>3; tileGL[3] = (gL + gR*3)>>4;
+									tileBL[0] = bL>>2;	tileBL[1] = (bL*3 + bR)>>4; tileBL[2] = (bL + bR)>>3; tileBL[3] = (bL + bR*3)>>4;
+
+									tileRL += 8;
+									tileGL += 8;
+									tileBL += 8;
+								}
+//								idxTilePlane += strideTile;
+//							}
+						}
+						
+						msk  >>= 1;
+						idxX2++;
+					}
+					
+					idxY2 += strideY4;
+				}
+			}
+			
+			idxX += 8; // 32 pixel, 8 block of 4 pixel skip in screen space. (= 8 in RGB Map)
+		}
+		idxY += strideY32;
+	}
+}
+
+void DecompressGradient4x4RG					(YAIK_Instance* pInstance
+												,u8*			dataUncompressedTilebitmap
+												,u8*			dataUncompressedRGB
+												,u8*			planeR
+												,u8*			planeG) {
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u64 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasR		= pInstance->mapRGBMask;
+	u8* hasG		= &pInstance->mapRGBMask[pInstance->sizeMapMask];
+
+	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
+	// For now Intel and Arm devices mainly use the little-endian.
+
+	int idxX;
+	int idxY		= 0;
+	u64* tileBitmap = (u64*)dataUncompressedTilebitmap;
+	u8* pixelUsedR	= pInstance->tile4x4Mask;
+	u8* pixelUsedG	= &pInstance->tile4x4Mask[pInstance->tile4x4MaskSize];
+	int strideY4	= pInstance->strideRGBMap;
+	int strideY32	= pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
+	int strideTile	= (iw>>3)<<6;
+
+	// RG Version.
+
+	for (u16 y=0; y<ih; y+=32) {
+		idxX = idxY;
+		for (u16 x=0; x<iw; x+=32) {
+			u64 tWord = *tileBitmap++;
+
+			// Early skip ! 64 tile if nothing.
+			if (tWord) {
+				int idxY2 = idxX;
+				u16 yt    = y;
+
+				// If nothing if upper 32 tile, early jump.
+				if ((tWord & 0xFFFFFFFF) == 0) {
+					tWord >>= 32;
+					yt     += 16;
+					idxY2  += strideY4<<2; // 4*4
+				}
+
+				if ((tWord & 0xFFFF) == 0) {
+					tWord >>= 16;
+					yt     += 8;
+					idxY2  += strideY4<<1; // 2*4
+				}
+
+				for (; yt<y+32; yt+=4) {
+					if (yt >= ih) { break; } // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next horizontal...
+
+					int msk = tWord & 0xFF;
+					tWord >>=8;
+
+					// Early skip, 4 tiles if nothing.
+					if (msk == 0) {
+						if (tWord == 0) { // Completed the tile early.
+							break;
+						} else {
+							idxY2 += strideY4;
+							continue; 
+						}
+					}
+
+					u16 xt=x;
+					int idxX2 = idxY2;
+
+					if ((msk & 0xF) == 0) {
+						msk  >>= 4;		// 4 Tile of 4 pixel
+						idxX2 += 4;		// 2 Tile of 2 colors
+						xt    += 16;	// 16 Pixel on screen.
+					}
+
+					if ((msk & 0x3) == 0) {
+						msk  >>= 2;		// 2 Tile of 4 pixel
+						idxX2 += 2;		// 1 Tile of 2 colors
+						xt    += 8;		// 8 Pixel on screen.
+					}
+
+					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+					
+					for (;xt<x+32; xt+=4) {
+						if ((xt >= iw) || (msk == 0)) {
+							break; 
+						} // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next vertical...
+
+						if (msk & 1) {
+							u8* pCornerRGB = &mapRGB[idxX2*3];
+							// Extract 4 RGB Edges.
+							u8* rgbCorner[2];
+
+							rgbCorner[0] = pCornerRGB;
+
+							int v = 1<<MOD8(idxX2);
+							if ((hasR[DIV8(idxX2)] & v)==0) {
+								hasR [DIV8(idxX2)]|= v;
+								// Load LT
+								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+							if ((hasG[DIV8(idxX2)] & v)==0) {
+								hasG [DIV8(idxX2)]|= v;
+								// Load LT
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							int tmpIdx = idxX2+1;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasR[DIV8(tmpIdx)] & v)==0) {
+								hasR [DIV8(tmpIdx)]|= v;
+								// Load RT
+								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+							if ((hasG[DIV8(tmpIdx)] & v)==0) {
+								hasG [DIV8(tmpIdx)]|= v;
+								// Load RT
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							pCornerRGB += strideY4 * 3;
+							rgbCorner[1] = pCornerRGB;
+
+							tmpIdx = idxX2 + strideY4;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasR[DIV8(tmpIdx)] & v)==0) {
+								hasR [DIV8(tmpIdx)]|= v;
+								// Load LB
+								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+							if ((hasG[DIV8(tmpIdx)] & v)==0) {
+								hasG [DIV8(tmpIdx)]|= v;
+								// Load LB
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							tmpIdx++;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasR[DIV8(tmpIdx)] & v)==0) {
+								hasR [DIV8(tmpIdx)]|= v;
+								// Load RB
+								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+							if ((hasG[DIV8(tmpIdx)] & v)==0) {
+								hasG [DIV8(tmpIdx)]|= v;
+								// Load RB
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							/*
+							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
+							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
+							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
+							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
+							*/
+
+							//
+							// Decompress 2x 8x8 Left and Right tile in loop.
+							//
+
+							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
+
+							int val = til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1));
+							int idxMarkTileAdr = idxTilePlane>>7;
+							pixelUsedR[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							pixelUsedG[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+
+//							for (int tileY=0; tileY <16; tileY+=8) {
+								u8* tileRL = &planeR[idxTilePlane];
+								u8* tileGL = &planeG[idxTilePlane];
+//								u8* tileBL = &planeB[idxTilePlane];
+								for (int ty=0; ty < 4; ty++) {
+									int nW = 4-ty;
+									// Vertical Blend
+									int rL = (rgbCorner[0][0] * nW) + (rgbCorner[1][0] * ty);
+									int gL = (rgbCorner[0][1] * nW) + (rgbCorner[1][1] * ty);
+//									int bL = (rgbCorner[0][2] * nW) + (rgbCorner[1][2] * ty);
+									int rR = (rgbCorner[0][3] * nW) + (rgbCorner[1][3] * ty);
+									int gR = (rgbCorner[0][4] * nW) + (rgbCorner[1][4] * ty);
+//									int bR = (rgbCorner[0][5] * nW) + (rgbCorner[1][5] * ty);
+
+									// Horizontal blending...
+									// 16 Color Line Left Tile
+									tileRL[0] = rL>>2;	tileRL[1] = (rL*3 + rR)>>4; tileRL[2] = (rL + rR)>>3; tileRL[3] = (rL + rR*3)>>4;
+									tileGL[0] = gL>>2;	tileGL[1] = (gL*3 + gR)>>4; tileGL[2] = (gL + gR)>>3; tileGL[3] = (gL + gR*3)>>4;
+//									tileBL[0] = bL>>2;	tileBL[1] = (bL*3 + bR)>>4; tileBL[2] = (bL + bR)>>3; tileBL[3] = (bL + bR*3)>>4;
+
+									tileRL += 8;
+									tileGL += 8;
+//									tileBL += 8;
+								}
+//								idxTilePlane += strideTile;
+//							}
+						}
+						
+						msk  >>= 1;
+						idxX2++;
+					}
+					
+					idxY2 += strideY4;
+				}
+			}
+			
+			idxX += 8; // 32 pixel, 8 block of 4 pixel skip in screen space. (= 8 in RGB Map)
+		}
+		idxY += strideY32;
+	}
+}
+
+void DecompressGradient4x4GB					(YAIK_Instance* pInstance
+												,u8*			dataUncompressedTilebitmap
+												,u8*			dataUncompressedRGB
+												,u8*			planeG
+												,u8*			planeB) {
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u64 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasG		= &pInstance->mapRGBMask[pInstance->sizeMapMask   ];
+	u8* hasB		= &pInstance->mapRGBMask[pInstance->sizeMapMask<<1];
+
+	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
+	// For now Intel and Arm devices mainly use the little-endian.
+
+	int idxX;
+	int idxY		= 0;
+	u64* tileBitmap = (u64*)dataUncompressedTilebitmap;
+	u8* pixelUsedG	= &pInstance->tile4x4Mask[pInstance->tile4x4MaskSize];
+	u8* pixelUsedB	= &pInstance->tile4x4Mask[pInstance->tile4x4MaskSize>>1];
+	int strideY4	= pInstance->strideRGBMap;
+	int strideY32	= pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
+	int strideTile	= (iw>>3)<<6;
+
+	// RGB Version Only.
+
+	for (u16 y=0; y<ih; y+=32) {
+		idxX = idxY;
+		for (u16 x=0; x<iw; x+=32) {
+			u64 tWord = *tileBitmap++;
+
+			// Early skip ! 64 tile if nothing.
+			if (tWord) {
+				int idxY2 = idxX;
+				u16 yt    = y;
+
+				// If nothing if upper 32 tile, early jump.
+				if ((tWord & 0xFFFFFFFF) == 0) {
+					tWord >>= 32;
+					yt     += 16;
+					idxY2  += strideY4<<2; // 4*4
+				}
+
+				if ((tWord & 0xFFFF) == 0) {
+					tWord >>= 16;
+					yt     += 8;
+					idxY2  += strideY4<<1; // 2*4
+				}
+
+				for (; yt<y+32; yt+=4) {
+					if (yt >= ih) { break; } // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next horizontal...
+
+					int msk = tWord & 0xFF;
+					tWord >>=8;
+
+					// Early skip, 4 tiles if nothing.
+					if (msk == 0) {
+						if (tWord == 0) { // Completed the tile early.
+							break;
+						} else {
+							idxY2 += strideY4;
+							continue; 
+						}
+					}
+
+					u16 xt=x;
+					int idxX2 = idxY2;
+
+					if ((msk & 0xF) == 0) {
+						msk  >>= 4;		// 4 Tile of 4 pixel
+						idxX2 += 4;		// 2 Tile of 2 colors
+						xt    += 16;	// 16 Pixel on screen.
+					}
+
+					if ((msk & 0x3) == 0) {
+						msk  >>= 2;		// 2 Tile of 4 pixel
+						idxX2 += 2;		// 1 Tile of 2 colors
+						xt    += 8;		// 8 Pixel on screen.
+					}
+
+					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+
+					for (;xt<x+32; xt+=4) {
+						if ((xt >= iw) || (msk == 0)) {
+							break; 
+						} // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next vertical...
+
+						if (msk & 1) {
+							u8* pCornerRGB = &mapRGB[idxX2*3];
+							// Extract 4 RGB Edges.
+							u8* rgbCorner[2];
+
+							rgbCorner[0] = pCornerRGB;
+
+							int v = 1<<MOD8(idxX2);
+							if ((hasG[DIV8(idxX2)] & v)==0) {
+								hasG [DIV8(idxX2)]|= v;
+								// Load LT
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+							if ((hasB[DIV8(idxX2)] & v)==0) {
+								hasB [DIV8(idxX2)]|= v;
+								// Load LT
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							int tmpIdx = idxX2+1;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasG[DIV8(tmpIdx)] & v)==0) {
+								hasG [DIV8(tmpIdx)]|= v;
+								// Load RT
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+							if ((hasB[DIV8(tmpIdx)] & v)==0) {
+								hasB [DIV8(tmpIdx)]|= v;
+								// Load RT
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							pCornerRGB += strideY4 * 3;
+							rgbCorner[1] = pCornerRGB;
+
+							tmpIdx = idxX2 + strideY4;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasG[DIV8(tmpIdx)] & v)==0) {
+								hasG [DIV8(tmpIdx)]|= v;
+								// Load LB
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+							if ((hasB[DIV8(tmpIdx)] & v)==0) {
+								hasB [DIV8(tmpIdx)]|= v;
+								// Load LB
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							tmpIdx++;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasG[DIV8(tmpIdx)] & v)==0) {
+								hasG [DIV8(tmpIdx)]|= v;
+								// Load RB
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+							if ((hasB[DIV8(tmpIdx)] & v)==0) {
+								hasB [DIV8(tmpIdx)]|= v;
+								// Load RB
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							/*
+							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
+							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
+							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
+							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
+							*/
+
+							//
+							// Decompress 2x 8x8 Left and Right tile in loop.
+							//
+
+							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
+
+							int val = til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1));
+							int idxMarkTileAdr = idxTilePlane>>7;
+							pixelUsedG[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							pixelUsedB[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+
+//							for (int tileY=0; tileY <16; tileY+=8) {
+//								u8* tileRL = &planeR[idxTilePlane];
+								u8* tileGL = &planeG[idxTilePlane];
+								u8* tileBL = &planeB[idxTilePlane];
+								for (int ty=0; ty < 4; ty++) {
+									int nW = 4-ty;
+									// Vertical Blend
+//									int rL = (rgbCorner[0][0] * nW) + (rgbCorner[1][0] * ty);
+									int gL = (rgbCorner[0][1] * nW) + (rgbCorner[1][1] * ty);
+									int bL = (rgbCorner[0][2] * nW) + (rgbCorner[1][2] * ty);
+//									int rR = (rgbCorner[0][3] * nW) + (rgbCorner[1][3] * ty);
+									int gR = (rgbCorner[0][4] * nW) + (rgbCorner[1][4] * ty);
+									int bR = (rgbCorner[0][5] * nW) + (rgbCorner[1][5] * ty);
+
+									// Horizontal blending...
+									// 16 Color Line Left Tile
+//									tileRL[0] = rL>>2;	tileRL[1] = (rL*3 + rR)>>4; tileRL[2] = (rL + rR)>>3; tileRL[3] = (rL + rR*3)>>4;
+									tileGL[0] = gL>>2;	tileGL[1] = (gL*3 + gR)>>4; tileGL[2] = (gL + gR)>>3; tileGL[3] = (gL + gR*3)>>4;
+									tileBL[0] = bL>>2;	tileBL[1] = (bL*3 + bR)>>4; tileBL[2] = (bL + bR)>>3; tileBL[3] = (bL + bR*3)>>4;
+
+//									tileRL += 8;
+									tileGL += 8;
+									tileBL += 8;
+								}
+//								idxTilePlane += strideTile;
+//							}
+						}
+						
+						msk  >>= 1;
+						idxX2++;
+					}
+					
+					idxY2 += strideY4;
+				}
+			}
+			
+			idxX += 8; // 32 pixel, 8 block of 4 pixel skip in screen space. (= 8 in RGB Map)
+		}
+		idxY += strideY32;
+	}
+}
+
+void DecompressGradient4x4RB					(YAIK_Instance* pInstance
+												,u8*			dataUncompressedTilebitmap
+												,u8*			dataUncompressedRGB
+												,u8*			planeR
+												,u8*			planeB) {
+
+	//
+	// NOTE : This function CAN BE OPTIMIZED because hasR and hasB are the same buffer content at this point as input (but not as OUTPUT !)
+	//        But if ORDER of call change, that will be broken. So I keep the code more generic for now at the cost of performance for
+	//		  this particular function.
+	//
+
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u64 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasR		= pInstance->mapRGBMask;
+	u8* hasB		= &pInstance->mapRGBMask[pInstance->sizeMapMask<<1];
+
+	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
+	// For now Intel and Arm devices mainly use the little-endian.
+
+	int idxX;
+	int idxY		= 0;
+	u64* tileBitmap	= (u64*)dataUncompressedTilebitmap;
+	u8* pixelUsedR	= pInstance->tile4x4Mask;
+	u8* pixelUsedB	= &pInstance->tile4x4Mask[pInstance->tile4x4MaskSize>>1];
+	int strideY4	= pInstance->strideRGBMap;
+	int strideY32	= pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
+	int strideTile	= (iw>>3)<<6;
+
+	// RGB Version Only.
+
+	for (u16 y=0; y<ih; y+=32) {
+		idxX = idxY;
+		for (u16 x=0; x<iw; x+=32) {
+			u64 tWord = *tileBitmap++;
+
+			// Early skip ! 64 tile if nothing.
+			if (tWord) {
+				int idxY2 = idxX;
+				u16 yt    = y;
+
+				// If nothing if upper 32 tile, early jump.
+				if ((tWord & 0xFFFFFFFF) == 0) {
+					tWord >>= 32;
+					yt     += 16;
+					idxY2  += strideY4<<2; // 4*4
+				}
+
+				if ((tWord & 0xFFFF) == 0) {
+					tWord >>= 16;
+					yt     += 8;
+					idxY2  += strideY4<<1; // 2*4
+				}
+
+				for (; yt<y+32; yt+=4) {
+					if (yt >= ih) { break; } // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next horizontal...
+
+					int msk = tWord & 0xFF;
+					tWord >>=8;
+
+					// Early skip, 4 tiles if nothing.
+					if (msk == 0) {
+						if (tWord == 0) { // Completed the tile early.
+							break;
+						} else {
+							idxY2 += strideY4;
+							continue; 
+						}
+					}
+
+					u16 xt=x;
+					int idxX2 = idxY2;
+
+					if ((msk & 0xF) == 0) {
+						msk  >>= 4;		// 4 Tile of 4 pixel
+						idxX2 += 4;		// 2 Tile of 2 colors
+						xt    += 16;	// 16 Pixel on screen.
+					}
+
+					if ((msk & 0x3) == 0) {
+						msk  >>= 2;		// 2 Tile of 4 pixel
+						idxX2 += 2;		// 1 Tile of 2 colors
+						xt    += 8;		// 8 Pixel on screen.
+					}
+
+					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+
+					for (;xt<x+32; xt+=4) {
+						if ((xt >= iw) || (msk == 0)) {
+							break; 
+						} // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next vertical...
+
+						if (msk & 1) {
+							u8* pCornerRGB = &mapRGB[idxX2*3];
+							// Extract 4 RGB Edges.
+							u8* rgbCorner[2];
+
+							rgbCorner[0] = pCornerRGB;
+
+							int v = 1<<MOD8(idxX2);
+							if ((hasR[DIV8(idxX2)] & v)==0) {
+								hasR [DIV8(idxX2)]|= v;
+								// Load LT
+								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+							if ((hasB[DIV8(idxX2)] & v)==0) {
+								hasB [DIV8(idxX2)]|= v;
+								// Load LT
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							int tmpIdx = idxX2+1;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasR[DIV8(tmpIdx)] & v)==0) {
+								hasR [DIV8(tmpIdx)]|= v;
+								// Load RT
+								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+							if ((hasB[DIV8(tmpIdx)] & v)==0) {
+								hasB [DIV8(tmpIdx)]|= v;
+								// Load RT
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							pCornerRGB += strideY4 * 3;
+							rgbCorner[1] = pCornerRGB;
+
+							tmpIdx = idxX2 + strideY4;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasR[DIV8(tmpIdx)] & v)==0) {
+								hasR [DIV8(tmpIdx)]|= v;
+								// Load LB
+								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+							if ((hasB[DIV8(tmpIdx)] & v)==0) {
+								hasB [DIV8(tmpIdx)]|= v;
+								// Load LB
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							tmpIdx++;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasR[DIV8(tmpIdx)] & v)==0) {
+								hasR [DIV8(tmpIdx)]|= v;
+								// Load RB
+								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+							if ((hasB[DIV8(tmpIdx)] & v)==0) {
+								hasB [DIV8(tmpIdx)]|= v;
+								// Load RB
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							/*
+							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
+							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
+							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
+							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
+							*/
+
+							//
+							// Decompress 2x 8x8 Left and Right tile in loop.
+							//
+
+							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
+							int val = til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1));
+							int idxMarkTileAdr = idxTilePlane>>7;
+							pixelUsedR[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							pixelUsedB[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+
+							u8* tileRL = &planeR[idxTilePlane];
+//							u8* tileGL = &planeG[idxTilePlane];
+							u8* tileBL = &planeB[idxTilePlane];
+							for (int ty=0; ty < 4; ty++) {
+								int nW = 4-ty;
+								// Vertical Blend
+								int rL = (rgbCorner[0][0] * nW) + (rgbCorner[1][0] * ty);
+//									int gL = (rgbCorner[0][1] * nW) + (rgbCorner[1][1] * ty);
+								int bL = (rgbCorner[0][2] * nW) + (rgbCorner[1][2] * ty);
+								int rR = (rgbCorner[0][3] * nW) + (rgbCorner[1][3] * ty);
+//									int gR = (rgbCorner[0][4] * nW) + (rgbCorner[1][4] * ty);
+								int bR = (rgbCorner[0][5] * nW) + (rgbCorner[1][5] * ty);
+
+								// Horizontal blending...
+								// 16 Color Line Left Tile
+								tileRL[0] = rL>>2;	tileRL[1] = (rL*3 + rR)>>4; tileRL[2] = (rL + rR)>>3; tileRL[3] = (rL + rR*3)>>4;
+//									tileGL[0] = gL>>2;	tileGL[1] = (gL*3 + gR)>>4; tileGL[2] = (gL + gR)>>3; tileGL[3] = (gL + gR*3)>>4;
+								tileBL[0] = bL>>2;	tileBL[1] = (bL*3 + bR)>>4; tileBL[2] = (bL + bR)>>3; tileBL[3] = (bL + bR*3)>>4;
+
+								tileRL += 8;
+//									tileGL += 8;
+								tileBL += 8;
+							}
+						}
+						
+						msk  >>= 1;
+						idxX2++;
+					}
+					
+					idxY2 += strideY4;
+				}
+			}
+			
+			idxX += 8; // 32 pixel, 8 block of 4 pixel skip in screen space. (= 8 in RGB Map)
+		}
+		idxY += strideY32;
+	}
+}
+
+void DecompressGradient4x4R						(YAIK_Instance* pInstance
+												,u8*			dataUncompressedTilebitmap
+												,u8*			dataUncompressedRGB
+												,u8*			planeR) {
+
+	//
+	// NOTE : This function CAN BE OPTIMIZED because hasR and hasB are the same buffer content at this point as input (but not as OUTPUT !)
+	//        But if ORDER of call change, that will be broken. So I keep the code more generic for now at the cost of performance for
+	//		  this particular function.
+	//
 
 	u16 iw		= pInstance->width;
 	u16 ih		= pInstance->height;
 	u64 tileWord= 0;
 
 	u8* mapRGB = pInstance->mapRGB;
-	u8* hasRGB = pInstance->mapRGBMask;
+	u8* hasR   = pInstance->mapRGBMask;
+	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
+	// For now Intel and Arm devices mainly use the little-endian.
+
+	u64* tileBitmap = (u64*)dataUncompressedTilebitmap;
+
+	// RGB Version Only.
+
+	int idxY = 0;
+	int idxX;
+	int strideY4  = pInstance->strideRGBMap;
+	int strideY32 = pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
+	int strideTile = (iw>>3)<<6;
+	for (u16 y=0; y<ih; y+=32) {
+		idxX = idxY;
+		for (u16 x=0; x<iw; x+=32) {
+			u64 tWord = *tileBitmap++;
+
+			// Early skip ! 64 tile if nothing.
+			if (tWord) {
+				int idxY2 = idxX;
+				u16 yt    = y;
+
+				// If nothing if upper 32 tile, early jump.
+				if ((tWord & 0xFFFFFFFF) == 0) {
+					tWord >>= 32;
+					yt     += 16;
+					idxY2  += strideY4<<2; // 4*4
+				}
+
+				if ((tWord & 0xFFFF) == 0) {
+					tWord >>= 16;
+					yt     += 8;
+					idxY2  += strideY4<<1; // 2*4
+				}
+
+				for (; yt<y+32; yt+=4) {
+					if (yt >= ih) { break; } // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next horizontal...
+
+					int msk = tWord & 0xFF;
+					tWord >>=8;
+
+					// Early skip, 4 tiles if nothing.
+					if (msk == 0) {
+						if (tWord == 0) { // Completed the tile early.
+							break;
+						} else {
+							idxY2 += strideY4;
+							continue; 
+						}
+					}
+
+					u16 xt=x;
+					int idxX2 = idxY2;
+
+					if ((msk & 0xF) == 0) {
+						msk  >>= 4;		// 4 Tile of 4 pixel
+						idxX2 += 4;		// 2 Tile of 2 colors
+						xt    += 16;	// 16 Pixel on screen.
+					}
+
+					if ((msk & 0x3) == 0) {
+						msk  >>= 2;		// 2 Tile of 4 pixel
+						idxX2 += 2;		// 1 Tile of 2 colors
+						xt    += 8;		// 8 Pixel on screen.
+					}
+
+					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+
+					for (;xt<x+32; xt+=4) {
+						if ((xt >= iw) || (msk == 0)) {
+							break; 
+						} // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next vertical...
+
+						if (msk & 1) {
+							u8* pCornerRGB = &mapRGB[idxX2*3];
+							// Extract 4 RGB Edges.
+							u8* rgbCorner[2];
+
+							rgbCorner[0] = pCornerRGB;
+
+							int v = 1<<MOD8(idxX2);
+							if ((hasR[DIV8(idxX2)] & v)==0) {
+								hasR [DIV8(idxX2)]|= v;
+								// Load LT
+								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							int tmpIdx = idxX2+1;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasR[DIV8(tmpIdx)] & v)==0) {
+								hasR [DIV8(tmpIdx)]|= v;
+								// Load RT
+								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							pCornerRGB += strideY4 * 3;
+							rgbCorner[1] = pCornerRGB;
+
+							tmpIdx = idxX2 + strideY4;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasR[DIV8(tmpIdx)] & v)==0) {
+								hasR [DIV8(tmpIdx)]|= v;
+								// Load LB
+								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							tmpIdx++;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasR[DIV8(tmpIdx)] & v)==0) {
+								hasR [DIV8(tmpIdx)]|= v;
+								// Load RB
+								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							/*
+							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
+							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
+							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
+							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
+							*/
+
+							//
+							// Decompress 2x 8x8 Left and Right tile in loop.
+							//
+
+							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
+
+//							pixelUsedR[idxTilePlane>>1] |= til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1)); // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+
+							u8* tileRL = &planeR[idxTilePlane];
+//							u8* tileGL = &planeG[idxTilePlane];
+//							u8* tileBL = &planeB[idxTilePlane];
+							for (int ty=0; ty < 4; ty++) {
+								int nW = 4-ty;
+								// Vertical Blend
+								int rL = (rgbCorner[0][0] * nW) + (rgbCorner[1][0] * ty);
+//								int gL = (rgbCorner[0][1] * nW) + (rgbCorner[1][1] * ty);
+//								int bL = (rgbCorner[0][2] * nW) + (rgbCorner[1][2] * ty);
+								int rR = (rgbCorner[0][3] * nW) + (rgbCorner[1][3] * ty);
+//								int gR = (rgbCorner[0][4] * nW) + (rgbCorner[1][4] * ty);
+//								int bR = (rgbCorner[0][5] * nW) + (rgbCorner[1][5] * ty);
+
+								// Horizontal blending...
+								// 16 Color Line Left Tile
+								tileRL[0] = rL>>2;	tileRL[1] = (rL*3 + rR)>>4; tileRL[2] = (rL + rR)>>3; tileRL[3] = (rL + rR*3)>>4;
+//								tileGL[0] = gL>>2;	tileGL[1] = (gL*3 + gR)>>4; tileGL[2] = (gL + gR)>>3; tileGL[3] = (gL + gR*3)>>4;
+//								tileBL[0] = bL>>2;	tileBL[1] = (bL*3 + bR)>>4; tileBL[2] = (bL + bR)>>3; tileBL[3] = (bL + bR*3)>>4;
+
+								tileRL += 8;
+//								tileGL += 8;
+//								tileBL += 8;
+							}
+						}
+						
+						msk  >>= 1;
+						idxX2++;
+					}
+					
+					idxY2 += strideY4;
+				}
+			}
+			
+			idxX += 8; // 32 pixel, 8 block of 4 pixel skip in screen space. (= 8 in RGB Map)
+		}
+		idxY += strideY32;
+	}
+}
+
+void DecompressGradient4x4G						(YAIK_Instance* pInstance
+												,u8*			dataUncompressedTilebitmap
+												,u8*			dataUncompressedRGB
+												,u8*			planeG) {
+	u16 iw		= pInstance->width;
+	u16 ih		= pInstance->height;
+	u64 tileWord= 0;
+
+	u8* mapRGB = pInstance->mapRGB;
+	u8* hasG   = &pInstance->mapRGBMask[pInstance->sizeMapMask   ];
 
 	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
 	// For now Intel and Arm devices mainly use the little-endian.
@@ -1183,6 +2287,8 @@ void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 						xt    += 8;		// 8 Pixel on screen.
 					}
 
+//					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+
 					for (;xt<x+32; xt+=4) {
 						if ((xt >= iw) || (msk == 0)) {
 							break; 
@@ -1195,46 +2301,46 @@ void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 
 							rgbCorner[0] = pCornerRGB;
 
-							int v = (1<<(idxX2 & 7));
-							if ((hasRGB[idxX2>>3] & v)==0) {
-								hasRGB[idxX2>>3] |= v;
+							int v = 1<<MOD8(idxX2);
+							if ((hasG[DIV8(idxX2)] & v)==0) {
+								hasG [DIV8(idxX2)]|= v;
 								// Load LT
-								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
-								pCornerRGB[2] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
 							}
 
 							int tmpIdx = idxX2+1;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasG[DIV8(tmpIdx)] & v)==0) {
+								hasG [DIV8(tmpIdx)]|= v;
 								// Load RT
-								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
-								pCornerRGB[5] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
 							pCornerRGB += strideY4 * 3;
 							rgbCorner[1] = pCornerRGB;
 
 							tmpIdx = idxX2 + strideY4;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasG[DIV8(tmpIdx)] & v)==0) {
+								hasG [DIV8(tmpIdx)]|= v;
 								// Load LB
-								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
-								pCornerRGB[2] = *dataUncompressedRGB++;
+//								pCornerRGB[2] = *dataUncompressedRGB++;
 							}
 
 							tmpIdx++;
-							v = (1<<(tmpIdx & 7));
-							if ((hasRGB[tmpIdx>>3] & v)==0) {
-								hasRGB[tmpIdx>>3] |= v;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasG[DIV8(tmpIdx)] & v)==0) {
+								hasG [DIV8(tmpIdx)]|= v;
 								// Load RB
-								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
-								pCornerRGB[5] = *dataUncompressedRGB++;
+//								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
 							/*
@@ -1249,29 +2355,32 @@ void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							//
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
+
+//							pixelUsedG[idxTilePlane>>1] |= til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1)); // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+
 //							for (int tileY=0; tileY <16; tileY+=8) {
-								u8* tileRL = &planeR[idxTilePlane];
+//								u8* tileRL = &planeR[idxTilePlane];
 								u8* tileGL = &planeG[idxTilePlane];
-								u8* tileBL = &planeB[idxTilePlane];
+//								u8* tileBL = &planeB[idxTilePlane];
 								for (int ty=0; ty < 4; ty++) {
 									int nW = 4-ty;
 									// Vertical Blend
-									int rL = (rgbCorner[0][0] * nW) + (rgbCorner[1][0] * ty);
+//									int rL = (rgbCorner[0][0] * nW) + (rgbCorner[1][0] * ty);
 									int gL = (rgbCorner[0][1] * nW) + (rgbCorner[1][1] * ty);
-									int bL = (rgbCorner[0][2] * nW) + (rgbCorner[1][2] * ty);
-									int rR = (rgbCorner[0][3] * nW) + (rgbCorner[1][3] * ty);
+//									int bL = (rgbCorner[0][2] * nW) + (rgbCorner[1][2] * ty);
+//									int rR = (rgbCorner[0][3] * nW) + (rgbCorner[1][3] * ty);
 									int gR = (rgbCorner[0][4] * nW) + (rgbCorner[1][4] * ty);
-									int bR = (rgbCorner[0][5] * nW) + (rgbCorner[1][5] * ty);
+//									int bR = (rgbCorner[0][5] * nW) + (rgbCorner[1][5] * ty);
 
 									// Horizontal blending...
 									// 16 Color Line Left Tile
-									tileRL[0] = rL>>2;	tileRL[1] = (rL*3 + rR)>>4; tileRL[2] = (rL + rR)>>3; tileRL[3] = (rL + rR*3)>>4;
+//									tileRL[0] = rL>>2;	tileRL[1] = (rL*3 + rR)>>4; tileRL[2] = (rL + rR)>>3; tileRL[3] = (rL + rR*3)>>4;
 									tileGL[0] = gL>>2;	tileGL[1] = (gL*3 + gR)>>4; tileGL[2] = (gL + gR)>>3; tileGL[3] = (gL + gR*3)>>4;
-									tileBL[0] = bL>>2;	tileBL[1] = (bL*3 + bR)>>4; tileBL[2] = (bL + bR)>>3; tileBL[3] = (bL + bR*3)>>4;
+//									tileBL[0] = bL>>2;	tileBL[1] = (bL*3 + bR)>>4; tileBL[2] = (bL + bR)>>3; tileBL[3] = (bL + bR*3)>>4;
 
-									tileRL += 8;
+//									tileRL += 8;
 									tileGL += 8;
-									tileBL += 8;
+//									tileBL += 8;
 								}
 //								idxTilePlane += strideTile;
 //							}
@@ -1291,3 +2400,189 @@ void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 	}
 }
 
+void DecompressGradient4x4B						(YAIK_Instance* pInstance
+												,u8*			dataUncompressedTilebitmap
+												,u8*			dataUncompressedRGB
+												,u8*			planeB) {
+	u16 iw		= pInstance->width;
+	u16 ih		= pInstance->height;
+	u64 tileWord= 0;
+
+	u8* mapRGB = pInstance->mapRGB;
+	u8* hasB   = &pInstance->mapRGBMask[pInstance->sizeMapMask<<1];
+	// TODO : Add assert about little-endian vs big-endian : Swap bytes if needed. --> Check at library startup, set a flag accessible through a function : isBigEndian()
+	// For now Intel and Arm devices mainly use the little-endian.
+
+	u64* tileBitmap = (u64*)dataUncompressedTilebitmap;
+
+	// RGB Version Only.
+
+	int idxY = 0;
+	int idxX;
+	int strideY4  = pInstance->strideRGBMap;
+	int strideY32 = pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
+	int strideTile = (iw>>3)<<6;
+	for (u16 y=0; y<ih; y+=32) {
+		idxX = idxY;
+		for (u16 x=0; x<iw; x+=32) {
+			u64 tWord = *tileBitmap++;
+
+			// Early skip ! 64 tile if nothing.
+			if (tWord) {
+				int idxY2 = idxX;
+				u16 yt    = y;
+
+				// If nothing if upper 32 tile, early jump.
+				if ((tWord & 0xFFFFFFFF) == 0) {
+					tWord >>= 32;
+					yt     += 16;
+					idxY2  += strideY4<<2; // 4*4
+				}
+
+				if ((tWord & 0xFFFF) == 0) {
+					tWord >>= 16;
+					yt     += 8;
+					idxY2  += strideY4<<1; // 2*4
+				}
+
+				for (; yt<y+32; yt+=4) {
+					if (yt >= ih) { break; } // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next horizontal...
+
+					int msk = tWord & 0xFF;
+					tWord >>=8;
+
+					// Early skip, 4 tiles if nothing.
+					if (msk == 0) {
+						if (tWord == 0) { // Completed the tile early.
+							break;
+						} else {
+							idxY2 += strideY4;
+							continue; 
+						}
+					}
+
+					u16 xt=x;
+					int idxX2 = idxY2;
+
+					if ((msk & 0xF) == 0) {
+						msk  >>= 4;		// 4 Tile of 4 pixel
+						idxX2 += 4;		// 2 Tile of 2 colors
+						xt    += 16;	// 16 Pixel on screen.
+					}
+
+					if ((msk & 0x3) == 0) {
+						msk  >>= 2;		// 2 Tile of 4 pixel
+						idxX2 += 2;		// 1 Tile of 2 colors
+						xt    += 8;		// 8 Pixel on screen.
+					}
+
+//					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+
+					for (;xt<x+32; xt+=4) {
+						if ((xt >= iw) || (msk == 0)) {
+							break; 
+						} // We completed the decoding, trying to process OUTSIDE of the tile vertically, go next vertical...
+
+						if (msk & 1) {
+							u8* pCornerRGB = &mapRGB[idxX2*3];
+							// Extract 4 RGB Edges.
+							u8* rgbCorner[2];
+
+							rgbCorner[0] = pCornerRGB;
+
+							int v = 1<<MOD8(idxX2);
+							if ((hasB[DIV8(idxX2)] & v)==0) {
+								hasB [DIV8(idxX2)]|= v;
+								// Load LT
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							int tmpIdx = idxX2+1;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasB[DIV8(tmpIdx)] & v)==0) {
+								hasB [DIV8(tmpIdx)]|= v;
+								// Load RT
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							pCornerRGB += strideY4 * 3;
+							rgbCorner[1] = pCornerRGB;
+
+							tmpIdx = idxX2 + strideY4;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasB[DIV8(tmpIdx)] & v)==0) {
+								hasB [DIV8(tmpIdx)]|= v;
+								// Load LB
+//								pCornerRGB[0] = *dataUncompressedRGB++;
+//								pCornerRGB[1] = *dataUncompressedRGB++;
+								pCornerRGB[2] = *dataUncompressedRGB++;
+							}
+
+							tmpIdx++;
+							v = 1<<MOD8(tmpIdx);
+							if ((hasB[DIV8(tmpIdx)] & v)==0) {
+								hasB [DIV8(tmpIdx)]|= v;
+								// Load RB
+//								pCornerRGB[3] = *dataUncompressedRGB++;
+//								pCornerRGB[4] = *dataUncompressedRGB++;
+								pCornerRGB[5] = *dataUncompressedRGB++;
+							}
+
+							/*
+							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
+							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
+							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
+							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
+							*/
+
+							//
+							// Decompress 2x 8x8 Left and Right tile in loop.
+							//
+
+							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
+
+							// Normally not necessary : When we reach 1 Plane grad.
+							// pixelUsedB[idxTilePlane>>1] |= til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1)); // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+
+//							u8* tileRL = &planeR[idxTilePlane];
+//							u8* tileGL = &planeG[idxTilePlane];
+							u8* tileBL = &planeB[idxTilePlane];
+							for (int ty=0; ty < 4; ty++) {
+								int nW = 4-ty;
+								// Vertical Blend
+//								int rL = (rgbCorner[0][0] * nW) + (rgbCorner[1][0] * ty);
+//								int gL = (rgbCorner[0][1] * nW) + (rgbCorner[1][1] * ty);
+								int bL = (rgbCorner[0][2] * nW) + (rgbCorner[1][2] * ty);
+//								int rR = (rgbCorner[0][3] * nW) + (rgbCorner[1][3] * ty);
+//								int gR = (rgbCorner[0][4] * nW) + (rgbCorner[1][4] * ty);
+								int bR = (rgbCorner[0][5] * nW) + (rgbCorner[1][5] * ty);
+
+								// Horizontal blending...
+								// 16 Color Line Left Tile
+//								tileRL[0] = rL>>2;	tileRL[1] = (rL*3 + rR)>>4; tileRL[2] = (rL + rR)>>3; tileRL[3] = (rL + rR*3)>>4;
+//								tileGL[0] = gL>>2;	tileGL[1] = (gL*3 + gR)>>4; tileGL[2] = (gL + gR)>>3; tileGL[3] = (gL + gR*3)>>4;
+								tileBL[0] = bL>>2;	tileBL[1] = (bL*3 + bR)>>4; tileBL[2] = (bL + bR)>>3; tileBL[3] = (bL + bR*3)>>4;
+
+//								tileRL += 8;
+//								tileGL += 8;
+								tileBL += 8;
+							}
+						}
+						
+						msk  >>= 1;
+						idxX2++;
+					}
+					
+					idxY2 += strideY4;
+				}
+			}
+			
+			idxX += 8; // 32 pixel, 8 block of 4 pixel skip in screen space. (= 8 in RGB Map)
+		}
+		idxY += strideY32;
+	}
+}

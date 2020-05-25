@@ -20,11 +20,14 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\external\zstd\cover.c" />
+    <ClCompile Include="..\..\external\zstd\debug.c" />
     <ClCompile Include="..\..\external\zstd\divsufsort.c" />
     <ClCompile Include="..\..\external\zstd\entropy_common.c" />
     <ClCompile Include="..\..\external\zstd\error_private.c" />
+    <ClCompile Include="..\..\external\zstd\fastcover.c" />
     <ClCompile Include="..\..\external\zstd\fse_compress.c" />
     <ClCompile Include="..\..\external\zstd\fse_decompress.c" />
+    <ClCompile Include="..\..\external\zstd\hist.c" />
     <ClCompile Include="..\..\external\zstd\huf_compress.c" />
     <ClCompile Include="..\..\external\zstd\huf_decompress.c" />
     <ClCompile Include="..\..\external\zstd\pool.c" />
@@ -34,7 +37,12 @@
     <ClCompile Include="..\..\external\zstd\zstdmt_compress.c" />
     <ClCompile Include="..\..\external\zstd\zstd_common.c" />
     <ClCompile Include="..\..\external\zstd\zstd_compress.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_compress_literals.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_compress_sequences.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_compress_superblock.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_ddict.c" />
     <ClCompile Include="..\..\external\zstd\zstd_decompress.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_decompress_block.c" />
     <ClCompile Include="..\..\external\zstd\zstd_double_fast.c" />
     <ClCompile Include="..\..\external\zstd\zstd_fast.c" />
     <ClCompile Include="..\..\external\zstd\zstd_lazy.c" />
