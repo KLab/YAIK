@@ -7,9 +7,9 @@
 int main(int argCnt, const char** args)
 {
 	const char* fileName = 
-//	"Muse_33009023.png"		// Girl with pink dress winter.
+	"Muse_33009023.png"		// Girl with pink dress winter.
 //	"Aqours_43104009.png"	// Girl sit on water
-	"Aqours_43101005.png"	// Girl with Star bg
+//	"Aqours_43101005.png"	// Girl with Star bg
 //	"b_rankup_4300300.png"	// Arabian Nights.
 	;
 

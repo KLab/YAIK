@@ -259,6 +259,17 @@ struct HeaderGradientTile {
 		bigTileY = swizzleParseY;
 		bitCount = (swizzleParseX >> tileShiftX) * (swizzleParseY >> tileShiftY);
 	}
+
+	static u32  getBitmapSwizzleSize(int TshiftX, int TshiftY, int imgW, int imgH) {
+		u32 swizzleParseX,swizzleParseY,bitCount;
+		HeaderGradientTile::getSwizzleSize(TshiftX,TshiftY,swizzleParseX,swizzleParseY, bitCount);
+		if (swizzleParseX && swizzleParseY) {
+			return ((imgW+swizzleParseX-1) / swizzleParseX) * ((imgH+swizzleParseY-1) / swizzleParseY) * bitCount;
+		} else {
+			return 0;
+		}
+	}
+
 };
 
 struct PlaneTile {
@@ -271,6 +282,34 @@ struct PlaneTile {
 	u8				format;							// Bit 1	: QuarterXAxis (1=True, 0=False)
 													// Bit 2	: QuarterYAxis (1=True, 0=False)
 													// Bit 3..4 : Plane ID (0 = YPlane, 1 = Co, 2 = Cg)
+};
+
+struct HeaderTile3D {
+	// [TODO]
+	u32 streamColorCnt;
+	u32 streamTypeCnt;
+	u32 stream3BitCnt;
+	u32 stream4BitCnt;
+	u32 stream5BitCnt;
+	u32 stream6BitCnt;
+	u32 comprTypeSize;
+	u32 comprColorSize;
+	u32 compr3BitSize;
+	u32 compr4BitSize;
+	u32 compr5BitSize;
+	u32 compr6BitSize;
+	
+	u16 sizeT16_8Map;
+	u16 sizeT8_16Map;
+	u16 sizeT8_8Map;
+	u16 sizeT4_8Map;
+	u16 sizeT8_4Map;
+
+	u16 sizeT16_8MapCmp;
+	u16 sizeT8_16MapCmp;
+	u16 sizeT8_8MapCmp;
+	u16 sizeT4_8MapCmp;
+	u16 sizeT8_4MapCmp;
 };
 
 #define EncodeTileType(t,r,b)		(((t)<<13)|((r)<<7)|(b))

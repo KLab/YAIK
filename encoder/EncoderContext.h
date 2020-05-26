@@ -39,9 +39,9 @@ public:
 	,smoothBitMap4 (NULL)
 	,remainingPixels	(0)
 	,outFile	(NULL)
+	,corr3D_stream6Bit			(NULL)
 	,corr3D_stream5Bit			(NULL)
 	,corr3D_stream4Bit			(NULL)
-	,corr3D_stream3Bit			(NULL)
 	,corr3D_sizeT8_16Map		(NULL)
 	,corr3D_sizeT16_8Map		(NULL)
 	,corr3D_sizeT8_8Map			(NULL)
@@ -127,13 +127,12 @@ protected:
 	// Analyze gradient...
 	void Interpolate		(Image* output, Plane* src, EInterpMode mode, bool isXDouble, bool isYDouble);
 
-
-
-
-
+	u8*  corr3D_stream6Bit;
 	u8*  corr3D_stream5Bit;
 	u8*  corr3D_stream4Bit;
 	u8*  corr3D_stream3Bit;
+//	u8*  corr3D_stream2Bit;
+
 	u8*  corr3D_sizeT8_16Map;
 	u8*  corr3D_sizeT16_8Map;
 	u8*  corr3D_sizeT8_8Map;
@@ -142,9 +141,11 @@ protected:
 	u8*  corr3D_sizeT4_4Map;
 	u16* corr3D_tileStreamTileType;
 	u8*  corr3D_colorStream;
+//	int stream2BitCnt;
 	int stream3BitCnt;
 	int stream4BitCnt;
 	int stream5BitCnt;
+	int stream6BitCnt;
 	int streamColorCnt;
 	int streamTypeCnt;
 
@@ -186,13 +187,15 @@ protected:
 			BuildDistanceField3D();
 		}
 
+		int   GetValue6Bit2D(int x, int y) { return position6Bit2D[x + y*64]; }
 		int   GetValue5Bit2D(int x, int y) { return position5Bit2D[x + y*64]; }
 		int   GetValue4Bit2D(int x, int y) { return position4Bit2D[x + y*64]; }
-		int   GetValue3Bit2D(int x, int y) { return position3Bit2D[x + y*64]; }
 
+		int   GetValue6Bit3D(int x, int y, int z) { return position6Bit3D[x + y*64 + (z<<12)]; }
 		int   GetValue5Bit3D(int x, int y, int z) { return position5Bit3D[x + y*64 + (z<<12)]; }
 		int   GetValue4Bit3D(int x, int y, int z) { return position4Bit3D[x + y*64 + (z<<12)]; }
 		int   GetValue3Bit3D(int x, int y, int z) { return position3Bit3D[x + y*64 + (z<<12)]; }
+//		int   GetValue2Bit3D(int x, int y, int z) { return position2Bit3D[x + y*64 + (z<<12)]; }
 
 		LinearEqu2D* equList2D;
 		LinearEqu3D* equList3D;
@@ -205,9 +208,9 @@ protected:
 		int   distSamples[64][8];
 		int	  distanceField2D[64*64];
 
+		int   position6Bit2D[64*64];
 		int   position5Bit2D[64*64];
 		int   position4Bit2D[64*64];
-		int   position3Bit2D[64*64];
 
 		//
 		// 3D
@@ -215,25 +218,39 @@ protected:
 		int   sumDistance3D[48];
 		int	  distanceField3D[64*64*64];
 
+		int   position6Bit3D[64*64*64];
 		int   position5Bit3D[64*64*64];
 		int   position4Bit3D[64*64*64];
 		int   position3Bit3D[64*64*64];
+//		int   position2Bit3D[64*64*64];
 
 		// Common 2D/3D
-		int	  xFactor5Bit[64];
-		int	  yFactor5Bit[64];
-		int	  zFactor5Bit[64]; // 3D Only
-		float tFactor5Bit[64];
+		int	  xFactor6Bit[64];
+		int	  yFactor6Bit[64];
+		int	  zFactor6Bit[64]; // 3D Only
+		float tFactor6Bit[64];
 
-		int	  xFactor4Bit[32];
-		int	  yFactor4Bit[32];
-		int	  zFactor4Bit[32]; // 3D Only
-		float tFactor4Bit[32];
+		int	  xFactor5Bit[32];
+		int	  yFactor5Bit[32];
+		int	  zFactor5Bit[32]; // 3D Only
+		float tFactor5Bit[32];
 
-		int	  xFactor3Bit[16];
-		int	  yFactor3Bit[16];
-		int	  zFactor3Bit[16]; // 3D Only
-		float tFactor3Bit[16];
+		int	  xFactor4Bit[16];
+		int	  yFactor4Bit[16];
+		int	  zFactor4Bit[16]; // 3D Only
+		float tFactor4Bit[16];
+
+		int	  xFactor3Bit[8];
+		int	  yFactor3Bit[8];
+		int	  zFactor3Bit[8]; // 3D Only
+		float tFactor3Bit[8];
+
+		/*
+		int	  xFactor2Bit[4];
+		int	  yFactor2Bit[4];
+		int	  zFactor2Bit[4]; // 3D Only
+		float tFactor2Bit[4];
+		*/
 
 		float acceptScore;
 		int   color[3];
@@ -279,7 +296,6 @@ protected:
 			for (int n=0; n < (8*6); n++) {
 				int idx;
 				int tmp;
-				int tmp2;
 
 				switch (n>>3) {
 				case 0: // Do nothing. 
@@ -370,9 +386,11 @@ protected:
 			return res;
 		}
 
+		u8 value6Bit[8*8*2];
 		u8 value5Bit[8*8*2];
 		u8 value4Bit[8*8*2];
 		u8 value3Bit[8*8*2];
+//		u8 value2Bit[8*8*2];
 
 	private:
 		void BuildDistanceField2D();
@@ -384,16 +402,18 @@ protected:
 	void Create2DCorrelationPatterns();
 
 	enum Mode {
-		ENCODE_5BIT,
+		ENCODE_3BIT = 0,
 		ENCODE_4BIT,
-		ENCODE_3BIT,
+		ENCODE_5BIT,
+		ENCODE_6BIT,
+		//
+//		ENCODE_2BIT, DISABLED => [Warning : file need 3 BIT and NOT 2 BIT ANYMORE to store info !!!!]
 		SKIP_TOO_LOSSY,
 	};
 
 
 	Mode computeValues2D(int flipMode, int px,int py, float* mapX, float* mapY, int pixCnt, BoundingBox bb, EvalCtx& ev, int& minSumErrDiff);
-	Mode computeValues3D(int tileSizeX, int tileSizeY, u64* mask, int flipMode, Image* input,int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minSumErrDiff, int* tile5B, int* tile4B, int* tile3B);
-
+	Mode computeValues3D(int tileSizeX, int tileSizeY, u8* mask, int flipMode, Image* input,int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minSumErrDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/);
 
 public:
 	void convert(const char* outputFile);

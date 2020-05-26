@@ -18,6 +18,12 @@
 // assert()
 #include <cassert>
 
+void kassert(bool cond) {
+	if (!cond) {
+		printf("ERR");
+	}
+}
+
 // -----------------------------
 // [TODO CLEAN LATER] : Functions in framework.h
 // -----------------------------
@@ -72,13 +78,10 @@ void YCoCgtoRGB(int Y, int Co, int Cg, int& oR, int& oG,int& oB) {
 }
 
 
-BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsizeX, int tsizeY, int& pixelInTile, u64* pMask) {
+BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsizeX, int tsizeY, int& pixelInTile, u8* pMask) {
 	bool isOutSide;
 	bool isIsFirst = true;
 	BoundingBox3D bb3;
-	u64 maskRes[2];
-	maskRes[0] = -1;
-	maskRes[1] = -1;
 
 	int pixelCount = 0;
 
@@ -87,7 +90,12 @@ BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsizeX, 
 			// Skip scanning.
 			int rgb[3];
 			pFilter->GetPixel(x+px,y+py,rgb,isOutSide);
-			if (rgb[0]==255 && rgb[1]==255 && rgb[2]==255) { continue; }
+		
+			pMask[x + y*tsizeX] = rgb[0];
+
+			if (rgb[0]==255 && rgb[1]==255 && rgb[2]==255) {
+				continue; 
+			}
 
 			pixelCount++;
 			p->GetPixel(x+px,y+py,rgb,isOutSide);
@@ -117,9 +125,6 @@ BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsizeX, 
 				if (rgb[2] < bb3.z0) { bb3.z0 = rgb[2]; }
 				if (rgb[2] > bb3.z1) { bb3.z1 = rgb[2]; }
 			}
-
-			int idx = (x+(y*tsizeX));
-			maskRes[idx >> 6] &= ~(1ULL<<(idx & 0x3F));
 		}
 	}
 
@@ -128,9 +133,6 @@ BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsizeX, 
 		bb3.y0 = -1; bb3.y1 = -1;
 		bb3.z0 = -1; bb3.z1 = -1;
 	}
-
-	pMask[0] = maskRes[0];
-	pMask[1] = maskRes[1];
 
 	pixelInTile = pixelCount;
 
@@ -2837,8 +2839,7 @@ void EncoderContext::DumpTileRGB() {
 				*/
 //				sortPalette(position,pixelPalette);
 
-				u64 tileMask[2];
-				tileMask[1] = -1;
+				u8 tileMask[128];
 				int pixelInTile;
 				BoundingBox3D bb3 = buildBBox3D(original,mapSmoothTile,x,y,tileSize,tileSize,pixelInTile,tileMask);
 
@@ -2872,7 +2873,7 @@ void EncoderContext::DumpTileRGB() {
 					for (int xp=0; xp < tileSize; xp++) {
 						int rgb[3];
 						int idxM = (xp+(yp*tileSize));
-						if (tileMask[idxM>>6] & (1ULL<<(idxM & 0x3F))) { continue; }
+						if (tileMask[idxM] != 0) { continue; }
 
 						original->GetPixel(x+xp,y+yp,rgb,isOutside);
 						int r = rgb[0]>>2;
@@ -3720,9 +3721,9 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 	for (int n=0; n < 64; n++) {
 		LinearEqu2D& equ = equList2D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor5Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor5Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		tFactor5Bit[n] = pos;
+		xFactor6Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
+		yFactor6Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		tFactor6Bit[n] = pos;
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
 			c++;
@@ -3735,9 +3736,9 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 	for (int n=0; n < 32; n++) {
 		LinearEqu2D& equ = equList2D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor4Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor4Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		tFactor4Bit[n] = pos;
+		xFactor5Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
+		yFactor5Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		tFactor5Bit[n] = pos;
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
 			c++;
@@ -3750,9 +3751,9 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 	for (int n=0; n < 16; n++) {
 		LinearEqu2D& equ = equList2D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor3Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor3Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		tFactor3Bit[n] = pos;
+		xFactor4Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
+		yFactor4Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		tFactor4Bit[n] = pos;
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
 			c++;
@@ -3798,7 +3799,7 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 			int   closestT3Idx = -1;
 
 			for (int n=0; n < 64; n++) {
-				float diff = fabs(absPos - tFactor5Bit[n]);
+				float diff = fabs(absPos - tFactor6Bit[n]);
 				if (diff < closestT5) {
 					closestT5    = diff;
 					closestT5Idx = n;
@@ -3806,7 +3807,7 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 			}
 
 			for (int n=0; n < 32; n++) {
-				float diff = fabs(absPos - tFactor4Bit[n]);
+				float diff = fabs(absPos - tFactor5Bit[n]);
 				if (diff < closestT4) {
 					closestT4    = diff;
 					closestT4Idx = n;
@@ -3814,16 +3815,16 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 			}
 
 			for (int n=0; n < 16; n++) {
-				float diff = fabs(absPos - tFactor3Bit[n]);
+				float diff = fabs(absPos - tFactor4Bit[n]);
 				if (diff < closestT3) {
 					closestT3    = diff;
 					closestT3Idx = n;
 				}
 			}
 
-			position3Bit2D[idx] = closestT3Idx;
-			position4Bit2D[idx] = closestT4Idx;
-			position5Bit2D[idx] = closestT5Idx;
+			position4Bit2D[idx] = closestT3Idx;
+			position5Bit2D[idx] = closestT4Idx;
+			position6Bit2D[idx] = closestT5Idx;
 
 			printf("%i,",distanceField2D[(y<<6) + x]);
 		}
@@ -3855,10 +3856,15 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 	for (int n=0; n < 64; n++) {
 		LinearEqu3D& equ = equList3D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor5Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor5Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		zFactor5Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
-		tFactor5Bit[n] = pos;
+		xFactor6Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
+		yFactor6Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		zFactor6Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+		tFactor6Bit[n] = pos;
+
+		kassert((xFactor6Bit[n] >= 0) || (xFactor6Bit[n] <= 256));
+		kassert((yFactor6Bit[n] >= 0) || (yFactor6Bit[n] <= 256));
+		kassert((zFactor6Bit[n] >= 0) || (zFactor6Bit[n] <= 256));
+
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
 			c++;
@@ -3871,10 +3877,15 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 	for (int n=0; n < 32; n++) {
 		LinearEqu3D& equ = equList3D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor4Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor4Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		zFactor4Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
-		tFactor4Bit[n] = pos;
+		xFactor5Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
+		yFactor5Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		zFactor5Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+
+		kassert((xFactor5Bit[n] >= 0) || (xFactor5Bit[n] <= 256));
+		kassert((yFactor5Bit[n] >= 0) || (yFactor5Bit[n] <= 256));
+		kassert((zFactor5Bit[n] >= 0) || (zFactor5Bit[n] <= 256));
+
+		tFactor5Bit[n] = pos;
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
 			c++;
@@ -3887,15 +3898,64 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 	for (int n=0; n < 16; n++) {
 		LinearEqu3D& equ = equList3D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
+		xFactor4Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
+		yFactor4Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		zFactor4Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+
+		kassert((xFactor4Bit[n] >= 0) || (xFactor4Bit[n] <= 256));
+		kassert((yFactor4Bit[n] >= 0) || (yFactor4Bit[n] <= 256));
+		kassert((zFactor4Bit[n] >= 0) || (zFactor4Bit[n] <= 256));
+
+		tFactor4Bit[n] = pos;
+		pos += step;
+		if (pos > (equ.distancePartPosition + equ.distancePart)) {
+			c++;
+		}
+	}
+
+	step = 1.0f/7.0f;
+	pos  = 0.0f;
+	c    = 0;
+	for (int n=0; n < 8; n++) {
+		LinearEqu3D& equ = equList3D[c];
+		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
 		xFactor3Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
 		yFactor3Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
 		zFactor3Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+
+		kassert((xFactor3Bit[n] >= 0) || (xFactor3Bit[n] <= 256));
+		kassert((yFactor3Bit[n] >= 0) || (yFactor3Bit[n] <= 256));
+		kassert((zFactor3Bit[n] >= 0) || (zFactor3Bit[n] <= 256));
+
 		tFactor3Bit[n] = pos;
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
 			c++;
 		}
 	}
+
+	/*
+	step = 1.0f/3.0f;
+	pos  = 0.0f;
+	c    = 0;
+	for (int n=0; n < 4; n++) {
+		LinearEqu3D& equ = equList3D[c];
+		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
+		xFactor2Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
+		yFactor2Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		zFactor2Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+
+		kassert((xFactor2Bit[n] >= 0) || (xFactor2Bit[n] <= 256));
+		kassert((yFactor2Bit[n] >= 0) || (yFactor2Bit[n] <= 256));
+		kassert((zFactor2Bit[n] >= 0) || (zFactor2Bit[n] <= 256));
+
+		tFactor2Bit[n] = pos;
+		pos += step;
+		if (pos > (equ.distancePartPosition + equ.distancePart)) {
+			c++;
+		}
+	}
+	*/
 
 	/*
 		int   position5Bit[64*64];
@@ -3928,15 +3988,27 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 
 				int idx5, idx4, idx3;
 
+				float closestT6 = 999999.0f;
 				float closestT5 = 999999.0f;
 				float closestT4 = 999999.0f;
 				float closestT3 = 999999.0f;
+//				float closestT2 = 999999.0f;
 
-				int   closestT5Idx = -1;
-				int   closestT4Idx = -1;
-				int   closestT3Idx = -1;
+				u32   closestT6Idx = -1;
+				u32   closestT5Idx = -1;
+				u32   closestT4Idx = -1;
+				u32   closestT3Idx = -1;
+//				u32   closestT2Idx = -1;
 
 				for (int n=0; n < 64; n++) {
+					float diff = fabs(absPos - tFactor6Bit[n]);
+					if (diff < closestT6) {
+						closestT6    = diff;
+						closestT6Idx = n;
+					}
+				}
+
+				for (int n=0; n < 32; n++) {
 					float diff = fabs(absPos - tFactor5Bit[n]);
 					if (diff < closestT5) {
 						closestT5    = diff;
@@ -3944,7 +4016,7 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 					}
 				}
 
-				for (int n=0; n < 32; n++) {
+				for (int n=0; n < 16; n++) {
 					float diff = fabs(absPos - tFactor4Bit[n]);
 					if (diff < closestT4) {
 						closestT4    = diff;
@@ -3952,17 +4024,33 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 					}
 				}
 
-				for (int n=0; n < 16; n++) {
+				for (int n=0; n < 8; n++) {
 					float diff = fabs(absPos - tFactor3Bit[n]);
 					if (diff < closestT3) {
 						closestT3    = diff;
 						closestT3Idx = n;
 					}
 				}
+				/*
+				for (int n=0; n < 4; n++) {
+					float diff = fabs(absPos - tFactor2Bit[n]);
+					if (diff < closestT2) {
+						closestT2    = diff;
+						closestT2Idx = n;
+					}
+				}
+				*/
 
+//				position2Bit3D[idx] = closestT2Idx;
+//				kassert(closestT2Idx <= 3);
 				position3Bit3D[idx] = closestT3Idx;
+				kassert(closestT3Idx <= 7);
 				position4Bit3D[idx] = closestT4Idx;
+				kassert(closestT4Idx <= 15);
 				position5Bit3D[idx] = closestT5Idx;
+				kassert(closestT5Idx <= 31);
+				position6Bit3D[idx] = closestT6Idx;
+				kassert(closestT6Idx <= 63);
 
 	//			printf("%i,",distanceField3D[(y<<6) + x]);
 			}
@@ -3980,13 +4068,13 @@ EncoderContext::Mode EncoderContext::computeValues2D(int mode, int px,int py, fl
 	// Default result.
 	EncoderContext::Mode res = SKIP_TOO_LOSSY;
 
+	bool reject6Bit = false;
 	bool reject5Bit = false;
 	bool reject4Bit = false;
-	bool reject3Bit = false;
 
+	int absErr6Bit  = 0;
 	int absErr5Bit  = 0;
 	int absErr4Bit  = 0;
-	int absErr3Bit  = 0;
 
 	int streamIdx = 0;
 
@@ -4020,17 +4108,27 @@ EncoderContext::Mode EncoderContext::computeValues2D(int mode, int px,int py, fl
 			}
 
 			// Lookup Map
+			int idx6Bit = ev.GetValue6Bit2D((int)mx,(int)my);
 			int idx5Bit = ev.GetValue5Bit2D((int)mx,(int)my);
 			int idx4Bit = ev.GetValue4Bit2D((int)mx,(int)my);
-			int idx3Bit = ev.GetValue3Bit2D((int)mx,(int)my);
 
 			// Find Decompressed values for mapping (Verification without decoder)
 			// -------------------------------------------
 
 			// TODO : LUT Based on Rotation mode in decoder.
+			int xCoord6Bit = ev.xFactor6Bit[idx6Bit];
+			int yCoord6Bit = ev.yFactor6Bit[idx6Bit];
+
+			if (mode & 1) { xCoord6Bit = 255 - xCoord6Bit; }
+			if (mode & 2) { yCoord6Bit = 255 - yCoord6Bit; }
+			if (mode & 4) {
+				int tmp = xCoord6Bit;
+				xCoord6Bit = yCoord6Bit;
+				yCoord6Bit = tmp;
+			}
+
 			int xCoord5Bit = ev.xFactor5Bit[idx5Bit];
 			int yCoord5Bit = ev.yFactor5Bit[idx5Bit];
-
 			if (mode & 1) { xCoord5Bit = 255 - xCoord5Bit; }
 			if (mode & 2) { yCoord5Bit = 255 - yCoord5Bit; }
 			if (mode & 4) {
@@ -4049,15 +4147,8 @@ EncoderContext::Mode EncoderContext::computeValues2D(int mode, int px,int py, fl
 				yCoord4Bit = tmp;
 			}
 
-			int xCoord3Bit = ev.xFactor3Bit[idx3Bit];
-			int yCoord3Bit = ev.yFactor3Bit[idx3Bit];
-			if (mode & 1) { xCoord3Bit = 255 - xCoord3Bit; }
-			if (mode & 2) { yCoord3Bit = 255 - yCoord3Bit; }
-			if (mode & 4) {
-				int tmp = xCoord3Bit;
-				xCoord3Bit = yCoord3Bit;
-				yCoord3Bit = tmp;
-			}
+			int Co6Bit     = bb.x + (xCoord6Bit*(bb.w-bb.x))/256; 
+			int Cg6Bit     = bb.y + (yCoord6Bit*(bb.h-bb.y))/256;
 
 			int Co5Bit     = bb.x + (xCoord5Bit*(bb.w-bb.x))/256; 
 			int Cg5Bit     = bb.y + (yCoord5Bit*(bb.h-bb.y))/256;
@@ -4065,46 +4156,43 @@ EncoderContext::Mode EncoderContext::computeValues2D(int mode, int px,int py, fl
 			int Co4Bit     = bb.x + (xCoord4Bit*(bb.w-bb.x))/256; 
 			int Cg4Bit     = bb.y + (yCoord4Bit*(bb.h-bb.y))/256;
 
-			int Co3Bit     = bb.x + (xCoord3Bit*(bb.w-bb.x))/256; 
-			int Cg3Bit     = bb.y + (yCoord3Bit*(bb.h-bb.y))/256;
-
+			int diff6BitCo	= abs(Co6Bit - CoV);
 			int diff5BitCo	= abs(Co5Bit - CoV);
 			int diff4BitCo	= abs(Co4Bit - CoV);
-			int diff3BitCo	= abs(Co3Bit - CoV);
 
+			int diff6BitCg	= abs(Cg6Bit - CgV);
 			int diff5BitCg	= abs(Cg5Bit - CgV);
 			int diff4BitCg	= abs(Cg4Bit - CgV);
-			int diff3BitCg	= abs(Cg3Bit - CgV);
 
 			#define max(a,b) (((a) > (b)) ? (a) : (b))
 
+			int lDiff6Bit	= max(diff6BitCo,diff6BitCg);
 			int lDiff5Bit	= max(diff5BitCo,diff5BitCg);
 			int lDiff4Bit	= max(diff4BitCo,diff4BitCg);
-			int lDiff3Bit	= max(diff3BitCo,diff3BitCg);
 
 			#undef max
 
+			absErr6Bit += lDiff6Bit;
 			absErr5Bit += lDiff5Bit;
 			absErr4Bit += lDiff4Bit;
-			absErr3Bit += lDiff3Bit;
 
+			if (lDiff6Bit > 3) { reject6Bit = true; }
 			if (lDiff5Bit > 3) { reject5Bit = true; }
 			if (lDiff4Bit > 3) { reject4Bit = true; }
-			if (lDiff3Bit > 3) { reject3Bit = true; }
 
+			ev.value6Bit[streamIdx] = idx6Bit;
 			ev.value5Bit[streamIdx] = idx5Bit;
 			ev.value4Bit[streamIdx] = idx4Bit;
-			ev.value3Bit[streamIdx] = idx3Bit;
 			streamIdx++;
 //			printf("Co[%i] -> %i, %i, %i   Cg[%i] -> %i, %i, %i\n",CoV,Co5Bit,Co4Bit,Co3Bit,CgV,Cg5Bit,Cg4Bit,Cg3Bit);
 		}
 	}
 
 	
-	if (!reject3Bit) { minDiff = absErr3Bit; return Mode::ENCODE_3BIT; }
 	if (!reject4Bit) { minDiff = absErr4Bit; return Mode::ENCODE_4BIT; }
-	minDiff = absErr5Bit;
-	if (!reject5Bit) { return Mode::ENCODE_5BIT; }
+	if (!reject5Bit) { minDiff = absErr5Bit; return Mode::ENCODE_5BIT; }
+	minDiff = absErr6Bit;
+	if (!reject6Bit) { return Mode::ENCODE_5BIT; }
 	return Mode::SKIP_TOO_LOSSY;
 }
 
@@ -4144,20 +4232,24 @@ void swap3D(int mode, int& x,int& y,int& z) {
 	}
 }
 
-EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSizeY, u64* mask, int mode, Image* input, int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minDiff, int* tile5B, int* tile4B, int* tile3B) {
+EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSizeY, u8* mask, int mode, Image* input, int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/) {
 	bool outP;
 	int mx,my,mz;
 
 	// Default result.
 	EncoderContext::Mode res = SKIP_TOO_LOSSY;
 
+	bool reject6Bit = false;
 	bool reject5Bit = false;
 	bool reject4Bit = false;
 	bool reject3Bit = false;
+	bool reject2Bit = false;
 
+	int absErr6Bit  = 0;
 	int absErr5Bit  = 0;
 	int absErr4Bit  = 0;
 	int absErr3Bit  = 0;
+	int absErr2Bit  = 0;
 
 	int dx = bb.x1 - bb.x0;
 	int dy = bb.y1 - bb.y0;
@@ -4169,7 +4261,7 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 		for (int x=0; x < tileSizeX; x++) {
 			int idxPix = x + y*tileSizeX;
 
-			if (mask[idxPix>>6] & (1ULL<<idxPix)) { continue; }
+			if (mask[idxPix]) { continue; }
 
 			int rgb[3]; input->GetPixel(px + x, py + y,rgb, outP);
 
@@ -4184,6 +4276,10 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 			float relG = rgb[1] - bb.y0;
 			float relB = rgb[2] - bb.z0;
 
+			kassert(relR >= 0.0f);
+			kassert(relG >= 0.0f);
+			kassert(relB >= 0.0f);
+
 			if (dx) { relR /= dx; }
 			if (dy) { relG /= dy; }
 			if (dz) { relB /= dz; }
@@ -4192,6 +4288,10 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 			relG *= 63.0f;
 			relB *= 63.0f;
 
+			kassert(relR < 64.0f);
+			kassert(relG < 64.0f);
+			kassert(relB < 64.0f);
+
 			// Handle mode.
 			mx = (mode & 1) ? 63 - relR : relR;
 			my = (mode & 2) ? 63 - relG : relG;
@@ -4199,18 +4299,28 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 			swap3D(mode>>3,mx,my,mz);
 
 			// Lookup Map
+			int idx6Bit = ev.GetValue6Bit3D((int)mx,(int)my,(int)mz);
 			int idx5Bit = ev.GetValue5Bit3D((int)mx,(int)my,(int)mz);
 			int idx4Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
-			int idx3Bit = ev.GetValue3Bit3D((int)mx,(int)my,(int)mz);
+			int idx3Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
+			int idx2Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
 
 			// Find Decompressed values for mapping (Verification without decoder)
 			// -------------------------------------------
 
 			// TODO : LUT Based on Rotation mode in decoder.
+			int xCoord6Bit = ev.xFactor6Bit[idx6Bit];
+			int yCoord6Bit = ev.yFactor6Bit[idx6Bit];
+			int zCoord6Bit = ev.zFactor6Bit[idx6Bit];
+
+			if (mode & 1) { xCoord6Bit = 256 - xCoord6Bit; }
+			if (mode & 2) { yCoord6Bit = 256 - yCoord6Bit; }
+			if (mode & 4) { zCoord6Bit = 256 - zCoord6Bit; }
+			swap3D(mode>>3,xCoord6Bit,yCoord6Bit,zCoord6Bit);
+
 			int xCoord5Bit = ev.xFactor5Bit[idx5Bit];
 			int yCoord5Bit = ev.yFactor5Bit[idx5Bit];
 			int zCoord5Bit = ev.zFactor5Bit[idx5Bit];
-
 			if (mode & 1) { xCoord5Bit = 256 - xCoord5Bit; }
 			if (mode & 2) { yCoord5Bit = 256 - yCoord5Bit; }
 			if (mode & 4) { zCoord5Bit = 256 - zCoord5Bit; }
@@ -4232,6 +4342,20 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 			if (mode & 4) { zCoord3Bit = 256 - zCoord3Bit; }
 			swap3D(mode>>3,xCoord3Bit,yCoord3Bit,zCoord3Bit);
 
+			/*
+			int xCoord2Bit = ev.xFactor2Bit[idx2Bit];
+			int yCoord2Bit = ev.yFactor2Bit[idx2Bit];
+			int zCoord2Bit = ev.zFactor2Bit[idx2Bit];
+			if (mode & 1) { xCoord2Bit = 256 - xCoord2Bit; }
+			if (mode & 2) { yCoord2Bit = 256 - yCoord2Bit; }
+			if (mode & 4) { zCoord2Bit = 256 - zCoord2Bit; }
+			swap3D(mode>>3,xCoord2Bit,yCoord2Bit,zCoord2Bit);
+			*/
+
+			int r6Bit     = bb.x0 + (xCoord6Bit*(bb.x1-bb.x0))/256; 
+			int g6Bit     = bb.y0 + (yCoord6Bit*(bb.y1-bb.y0))/256;
+			int b6Bit     = bb.z0 + (zCoord6Bit*(bb.z1-bb.z0))/256;
+
 			int r5Bit     = bb.x0 + (xCoord5Bit*(bb.x1-bb.x0))/256; 
 			int g5Bit     = bb.y0 + (yCoord5Bit*(bb.y1-bb.y0))/256;
 			int b5Bit     = bb.z0 + (zCoord5Bit*(bb.z1-bb.z0))/256;
@@ -4244,23 +4368,38 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 			int g3Bit     = bb.y0 + (yCoord3Bit*(bb.y1-bb.y0))/256;
 			int b3Bit     = bb.z0 + (zCoord3Bit*(bb.z1-bb.z0))/256;
 
+			/*
+			int r2Bit     = bb.x0 + (xCoord2Bit*(bb.x1-bb.x0))/256; 
+			int g2Bit     = bb.y0 + (yCoord2Bit*(bb.y1-bb.y0))/256;
+			int b2Bit     = bb.z0 + (zCoord2Bit*(bb.z1-bb.z0))/256;
+			*/
+
+			int diff6BitR	= abs(r6Bit - rgb[0]);
 			int diff5BitR	= abs(r5Bit - rgb[0]);
 			int diff4BitR	= abs(r4Bit - rgb[0]);
 			int diff3BitR	= abs(r3Bit - rgb[0]);
+//			int diff2BitR	= abs(r2Bit - rgb[0]);
 
+			int diff6BitG	= abs(g6Bit - rgb[1]);
 			int diff5BitG	= abs(g5Bit - rgb[1]);
 			int diff4BitG	= abs(g4Bit - rgb[1]);
 			int diff3BitG	= abs(g3Bit - rgb[1]);
+//			int diff2BitG	= abs(g2Bit - rgb[1]);
 
+			int diff6BitB	= abs(b6Bit - rgb[2]);
 			int diff5BitB	= abs(b5Bit - rgb[2]);
 			int diff4BitB	= abs(b4Bit - rgb[2]);
 			int diff3BitB	= abs(b3Bit - rgb[2]);
-
+//			int diff2BitB	= abs(b2Bit - rgb[2]);
 
 			assert(idxPix < 128);
 
 			int idxPixRGB = idxPix * 3;
 			// Export encoder result.
+			tile6B[idxPixRGB  ] = r6Bit;
+			tile6B[idxPixRGB+1] = g6Bit;
+			tile6B[idxPixRGB+2] = b6Bit;
+
 			tile5B[idxPixRGB  ] = r5Bit;
 			tile5B[idxPixRGB+1] = g5Bit;
 			tile5B[idxPixRGB+2] = b5Bit;
@@ -4272,18 +4411,26 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 			tile3B[idxPixRGB  ] = r3Bit;
 			tile3B[idxPixRGB+1] = g3Bit;
 			tile3B[idxPixRGB+2] = b3Bit;
-
+			/*
+			tile2B[idxPixRGB  ] = r2Bit;
+			tile2B[idxPixRGB+1] = g2Bit;
+			tile2B[idxPixRGB+2] = b2Bit;
+			*/
 			#define max(a,b) (((a) > (b)) ? (a) : (b))
 
+			int lDiff6Bit	= max(max(diff6BitR,diff6BitG),diff6BitB);
 			int lDiff5Bit	= max(max(diff5BitR,diff5BitG),diff5BitB);
 			int lDiff4Bit	= max(max(diff4BitR,diff4BitG),diff4BitB);
 			int lDiff3Bit	= max(max(diff3BitR,diff3BitG),diff3BitB);
+//			int lDiff2Bit	= max(max(diff2BitR,diff2BitG),diff2BitB);
 
 			#undef max
 
+			absErr6Bit += lDiff6Bit;
 			absErr5Bit += lDiff5Bit;
 			absErr4Bit += lDiff4Bit;
 			absErr3Bit += lDiff3Bit;
+//			absErr2Bit += lDiff2Bit;
 
 			//
 			// Per pixel different is max > 4, after that, start to notice artifacts...
@@ -4292,23 +4439,29 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 			//
 			// DIFF is over the range... Be sure you are on a 0..255 or 0..127 range.
 			//
+			if (lDiff6Bit > 5) { reject6Bit = true; }
 			if (lDiff5Bit > 5) { reject5Bit = true; }
-			if (lDiff4Bit > 5) { reject4Bit = true; }
+			if (lDiff4Bit > 7) { reject4Bit = true; }
 			if (lDiff3Bit > 7) { reject3Bit = true; }
+//			if (lDiff2Bit > 7) { reject2Bit = true; }
 
+			ev.value6Bit[streamIdx] = idx6Bit;
 			ev.value5Bit[streamIdx] = idx5Bit;
 			ev.value4Bit[streamIdx] = idx4Bit;
 			ev.value3Bit[streamIdx] = idx3Bit;
+//			ev.value2Bit[streamIdx] = idx2Bit;
 			streamIdx++;
 
 //			printf("Co[%i] -> %i, %i, %i   Cg[%i] -> %i, %i, %i\n",CoV,Co5Bit,Co4Bit,Co3Bit,CgV,Cg5Bit,Cg4Bit,Cg3Bit);
 		}
 	}
 
+//	if (!reject2Bit || ((absErr2Bit/64.0f) < 0.0f)) { minDiff = absErr2Bit; return Mode::ENCODE_2BIT; }
 	if (!reject3Bit || ((absErr3Bit/64.0f) < 0.0f)) { minDiff = absErr3Bit; return Mode::ENCODE_3BIT; }
 	if (!reject4Bit || ((absErr4Bit/64.0f) < 0.0f)) { minDiff = absErr4Bit; return Mode::ENCODE_4BIT; }
-	minDiff = absErr5Bit;
-	if (!reject5Bit || ((absErr5Bit/64.0f) < 0.0f)) { return Mode::ENCODE_5BIT; }
+	if (!reject5Bit || ((absErr5Bit/64.0f) < 0.0f)) { minDiff = absErr5Bit; return Mode::ENCODE_5BIT; }
+	minDiff = absErr6Bit;
+	if (!reject6Bit || ((absErr6Bit/64.0f) < 0.0f)) { return Mode::ENCODE_6BIT; }
 	return Mode::SKIP_TOO_LOSSY;
 }
 
@@ -4399,178 +4552,199 @@ void EncoderContext::AnalyzeColorCount(Image* input, int tileSize) {
 	original->SavePNG("PALETTE.png",NULL);
 }
 
-void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSizeX, int tileSizeY) {
+void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShiftX, int tileShiftY) {
 	BoundingBox3D bb3;
 	bool isOutSide;
-	int tileCnt = 0;
+	int pos       = 0;
 	int matchTile = 0;
 
-	if ((tileSizeX > 16) || (tileSizeY > 16)) {
+	if ((tileShiftX > 4) || (tileShiftY > 4)) {
 		assert(false); // Can not support yet.
 	}
 
-	if ((tileSizeX == 16) && (tileSizeY > 8)) {
+	if ((tileShiftX == 4) && (tileShiftY > 3)) {
 		assert(false); // Can not support yet.
 	}
 
-	if ((tileSizeY == 16) && (tileSizeX > 8)) {
+	if ((tileShiftY == 4) && (tileShiftX > 3)) {
 		assert(false); // Can not support yet.
 	}
 
-	for (int py = 0; py < input->GetHeight(); py += tileSizeY) {
-		for (int px = 0; px < input->GetWidth(); px += tileSizeX) {
+	int imgW = input->GetWidth();
+	int imgH = input->GetHeight();
 
-			u64 maskTile[2];
-			maskTile[1] = -1; // Tile 8x16 / 16x8 reset default.
-			int pixelsInTile;
-			// For all tiles.
-			bb3 = buildBBox3D(input,mapSmoothTile,px,py,tileSizeX,tileSizeY,pixelsInTile,maskTile);
+	// 16x16 : 16 bit table (64x64 pixel) -> Lookup the table by block of 4x4 tile. -> Allow 16/4 skip
+	// 16x 8 : 32 bit table (64x64 pixel) -> Lookup the table by block of 4x8 tile. -> Allow 
+	//  8x16 : 32 bit table (64x64 pixel) -> Lookup the table by block of 8x4 tile.
+	//  8x 8 : 64 bit table (64x64 pixel) -> Lookup the table by block of 8x8 tile.
+	//  8x 4 : 64 bit table (64x32 pixel) -> Lookup the table by block of 8x8 tile.
+	//  4x 8 : 64 bit table (32x64 pixel) -> Lookup the table by block of 8x8 tile.
+	//  4x 4 : 64 bit table (32x32 pixel) -> Lookup the table by block of 8x8 tile.
 
-			// 3D encoded in 3D -> OK
-			// 2D encoded in 3D -> OK = Equivalent 1 Planar + 2 Correlated
-			// 1D encoded in 3D -> NO
+	u32 swizzleParseY;
+	u32 swizzleParseX;
+	u32 bitCount;
 
-			// Export normalized values...
-			int dX = bb3.x1 - bb3.x0;
-			int dY = bb3.y1 - bb3.y0;
-			int dZ = bb3.z1 - bb3.z0;
+	HeaderGradientTile::getSwizzleSize(tileShiftX,tileShiftY,swizzleParseX,swizzleParseY, bitCount);
 
-			bool accept = ((dX == 0) && ((dY != 0) && (dZ != 0)))	// X Flat Planar, YZ not.
-						| ((dY == 0) && ((dX != 0) && (dZ != 0)))	// Y Flat Planar, XZ not.
-						| ((dZ == 0) && ((dX != 0) && (dY != 0)))	// Z Flat Planar, XY not.
-						| ((dX != 0) &&  (dY != 0) && (dZ != 0) )	// XYZ Non Flat Planar.
-						;
+	int tileSizeX = 1<<tileShiftX;
+	int tileSizeY = 1<<tileShiftY;
 
-			if (!accept) {
-				// Co or Cg plane is a SINGLE VALUE or BOTH.
-				// -> Case not detected because variation in the Y plane using Planar Mode.
-				// printf("Planar also...\n");
-			} else {
+	int bitCountMap = HeaderGradientTile::getBitmapSwizzleSize(tileShiftX,tileShiftY,imgW,imgH);
 
-				// Now try to find in the CoCg plane :
-				// - Can we fit on a line ?
-				// - Can we fit on a spline ?
-				// - Can we fit on a triangle ? (PCA like)
+	// Linear 2D order for big tile defined by swizzling.
+	for (int swizzley=0; swizzley < imgH; swizzley += swizzleParseY) {
+		for (int swizzlex=0; swizzlex < imgW; swizzlex += swizzleParseX) {
 
-				bool isOutside;
+			// Target size tile inside quad tile
+			for (int y=swizzley; y < swizzley+swizzleParseY; y+= tileSizeY) {
+				// Because of big tile parsing, we may lookup outside of image with sub-tiles. (Y-Axis)
+				if (y >= imgH) {
+					// Keep bit counter aligned for next line...
+					pos += ((swizzley+swizzleParseY - imgH) / tileSizeY) * (swizzleParseX / tileSizeX); 
+					break; 
+				}
 
-				/*
-				float mapX[64];
-				float mapY[64];
-				float mapZ[64];
-				*/
-
-				if ((maskTile[0] != 0xFFFFFFFFFFFFFFULL) || (maskTile[1] != 0xFFFFFFFFFFFFFFULL)
-//					maskTile == 0
-					) { // We don't check the map here, because there could be quarter block (4x4), instead we check pixel by pixel.
-					bool isIsFirst = true;
-
-					int nX = dX ? ((1<<20)/dX) : 0;
-					int nY = dY ? ((1<<20)/dY) : 0;
-					int nZ = dZ ? ((1<<20)/dZ) : 0;
-
-					float div = (float)(1<<20);
-
-//					memset(renderBuffer,0,64*64*3);
-
-					for (int e=0;e<correlationPatternCount; e++) {
-						correlationPattern[e].EvaluateStart3D();
+				for (int x=swizzlex; x < swizzlex+swizzleParseX; x+= tileSizeX) {
+					// Because of big tile parsing, we may lookup outside of image with sub-tiles. (X-Axis)
+					if (x >= imgW) {
+						// Keep bit counter aligned for next line...
+						pos += ((swizzlex+swizzley - imgW) / tileSizeX); 
+						break; 
 					}
 
-//					int pixCnt = 0;
+					u8 maskTile[128];
+					int pixelsInTile;
+					// For all tiles.
+					bb3 = buildBBox3D(input,mapSmoothTile,x,y,tileSizeX,tileSizeY,pixelsInTile,maskTile);
 
-					for (int y=0; y < tileSizeY; y++) {
-						for (int x=0; x < tileSizeX; x++) {
-							int idx = x + (y*tileSizeX);
+					// Export normalized values...
+					int dX = bb3.x1 - bb3.x0;
+					int dY = bb3.y1 - bb3.y0;
+					int dZ = bb3.z1 - bb3.z0;
 
-							// Ignore pixel already processed.
-							if (maskTile[idx>>6] & (1ULL<<(idx & 0x3F))) { continue; }
+					bool accept = ((dX == 0) && ((dY != 0) && (dZ != 0)))	// X Flat Planar, YZ not.
+								| ((dY == 0) && ((dX != 0) && (dZ != 0)))	// Y Flat Planar, XZ not.
+								| ((dZ == 0) && ((dX != 0) && (dY != 0)))	// Z Flat Planar, XY not.
+								| ((dX != 0) &&  (dY != 0) && (dZ != 0) )	// XYZ Non Flat Planar.
+								;
 
-							int rgb[3];
-							input->GetPixel(x+px,y+py,rgb,isOutSide);
+					// 3D encoded in 3D -> OK
+					// 2D encoded in 3D -> OK = Equivalent 1 Planar + 2 Correlated
+					// 1D encoded in 3D -> NO
 
-							rgb[0] >>= 0;
-							rgb[1] >>= 0;
-							rgb[2] >>= 0;
+					// Can we check the current tile for encoding ???
+					if (accept && pixelsInTile != 0) {
+						bool isOutside;
+						bool isIsFirst = true;
 
-							// Origin.
-							int r = rgb[0] - bb3.x0;
-							int g = rgb[1] - bb3.y0;
-							int b = rgb[2] - bb3.z0;
+						int nX = dX ? ((1<<20)/dX) : 0;
+						int nY = dY ? ((1<<20)/dY) : 0;
+						int nZ = dZ ? ((1<<20)/dZ) : 0;
 
-							// Rescale to 1.0 fixed.
-							r *= nX;
-							g *= nY;
-							b *= nZ;
+						float div = (float)(1<<20);
 
-							float fr = r/div;
-							float fg = g/div;
-							float fb = b/div;
+						for (int e=0;e<correlationPatternCount; e++) {
+							correlationPattern[e].EvaluateStart3D();
+						}
 
-							/*
-							mapX[pixCnt] = fr;
-							mapY[pixCnt] = fg;
-							mapZ[pixCnt] = fb;
-							*/
+						// Per Pixel test...
+						for (int ty=0; ty < tileSizeY; ty++) {
+							for (int tx=0; tx < tileSizeX; tx++) {
 
-							int ir64 = ((int)(fr*63));
-							int ig64 = ((int)(fg*63));
-							int ib64 = ((int)(fb*63));
+								int idx = tx + (ty*tileSizeX);
 
-							assert(ir64 >= 0 && ir64 < 64);
-							assert(ig64 >= 0 && ig64 < 64);
-							assert(ib64 >= 0 && ib64 < 64);
+								// Ignore pixel already processed.
+								if (maskTile[idx]) { continue; }
 
-//							printf("%i,%i,%i,%i,%i,%i\n",ir64,ig64,ib64,rgb[0],rgb[1],rgb[2]);
+								int rgb[3];
+								input->GetPixel(x+tx,y+ty,rgb,isOutSide);
 
-							for (int e=0;e<correlationPatternCount; e++) {
-								correlationPattern[e].EvaluatePoint3D(ir64,ig64,ib64);
+								rgb[0] >>= 0;
+								rgb[1] >>= 0;
+								rgb[2] >>= 0;
+
+								// Origin.
+								int r = rgb[0] - bb3.x0;
+								int g = rgb[1] - bb3.y0;
+								int b = rgb[2] - bb3.z0;
+
+								// Rescale to 1.0 fixed.
+								r *= nX;
+								g *= nY;
+								b *= nZ;
+
+								float fr = r/div;
+								float fg = g/div;
+								float fb = b/div;
+
+								int ir64 = ((int)(fr*63));
+								int ig64 = ((int)(fg*63));
+								int ib64 = ((int)(fb*63));
+
+								kassert(ir64 >= 0 && ir64 < 64);
+								kassert(ig64 >= 0 && ig64 < 64);
+								kassert(ib64 >= 0 && ib64 < 64);
+
+	//							printf("%i,%i,%i,%i,%i,%i\n",ir64,ig64,ib64,rgb[0],rgb[1],rgb[2]);
+
+								for (int e=0;e<correlationPatternCount; e++) {
+									correlationPattern[e].EvaluatePoint3D(ir64,ig64,ib64);
+								}
 							}
 						}
-					}
 
-					char buffer[2000];
-					sprintf(buffer,"tiles\\tileMap_%i_(@%i_%i@%i_%i@%i_%i).png",tileCnt,bb3.x0,bb3.x1,bb3.y0,bb3.y1,bb3.z0,bb3.z1);
+						char buffer[2000];
+						sprintf(buffer,"tiles\\tileMap_%i_(@%i_%i@%i_%i@%i_%i).png",pos,bb3.x0,bb3.x1,bb3.y0,bb3.y1,bb3.z0,bb3.z1);
 
-					EvalCtx* evMin = &correlationPattern[0];
-					float minScore = 999999999.0f;
-					float fStdDev;
-					bool found = false;
-					int foundE = -1;
-					int foundM48 = -1;
-					int diffSum = 99999999999;
-					int bestSize = 0;
-					EncoderContext::Mode bitMode;
+						EvalCtx* evMin = &correlationPattern[0];
+						float minScore = 999999999.0f;
+						float fStdDev;
+						bool found = false;
+						int foundE = -1;
+						int foundM48 = -1;
+						int diffSum = 99999999999;
+						int bestSize = 0;
+						EncoderContext::Mode bitMode;
 
-					int rgbOut5[128*3];
-					int rgbOut4[128*3];
-					int rgbOut3[128*3];
+						int rgbOut6[128*3];
+						int rgbOut5[128*3];
+						int rgbOut4[128*3];
+						int rgbOut3[128*3];
+						int rgbOut2[128*3];
 
-					for (int e=0;e<correlationPatternCount; e++) {
-						float score;
-						EvalCtx& ev = correlationPattern[e];
-						int mode48 = ev.GetEvaluation3D(score);
-						bool accept = false;
-						int diffSumL = 0;
+						//
+						// Find best result for the current tile...
+						//
+						for (int e=0;e<correlationPatternCount; e++) {
+							float score;
+							EvalCtx& ev = correlationPattern[e];
+							int mode48 = ev.GetEvaluation3D(score);
+							bool accept = false;
+							int diffSumL = 0;
 
-						// Compute Channel values AND return valid mode if ERROR < 3 in ALL Component for each SINGLE pixels. (no average)
-						EncoderContext::Mode m = computeValues3D(tileSizeX,tileSizeY,maskTile, mode48,input,px,py,bb3,ev,diffSumL,rgbOut5,rgbOut4,rgbOut3);
-						int fileCost = (4+3) + 32;
-						int* src = NULL;
-						int bit = 0;
-						switch (m) {
-						case EncoderContext::ENCODE_3BIT: bit = 3; src = rgbOut3; fileCost += (pixelsInTile*3);	// Type(4 bit), 3 bit (Mode), Bbox(32), Per pix : 3 bit.
-							break;
-						case EncoderContext::ENCODE_4BIT: bit = 4; src = rgbOut4; fileCost += (pixelsInTile*4);	// Type(4 bit), 3 bit (Mode), Bbox(32), Per pix : 3 bit.
-							break;
-						case EncoderContext::ENCODE_5BIT: bit = 5; src = rgbOut5; fileCost += (pixelsInTile*5);	// Type(4 bit), 3 bit (Mode), Bbox(32), Per pix : 3 bit.
-							break;
-						}
+							// Compute Channel values AND return valid mode if ERROR < 3 in ALL Component for each SINGLE pixels. (no average)
+							EncoderContext::Mode m = computeValues3D(tileSizeX,tileSizeY,maskTile, mode48,input,x,y,bb3,ev,diffSumL,rgbOut6,rgbOut5,rgbOut4,rgbOut3/*,rgbOut2*/);
+							int fileCost = (4+3) + 32;
+							int* src = NULL;
+							int bit = 0;
+							switch (m) {
+							case EncoderContext::ENCODE_4BIT: bit = 4; src = rgbOut4; fileCost += (pixelsInTile*4);	// Type(4 bit), 3 bit (Mode), Bbox(32), Per pix : 4 bit.
+								break;
+							case EncoderContext::ENCODE_5BIT: bit = 5; src = rgbOut5; fileCost += (pixelsInTile*5);	// Type(4 bit), 3 bit (Mode), Bbox(32), Per pix : 5 bit.
+								break;
+							case EncoderContext::ENCODE_6BIT: bit = 6; src = rgbOut6; fileCost += (pixelsInTile*6);	// Type(4 bit), 3 bit (Mode), Bbox(32), Per pix : 6 bit.
+								break;
+							case EncoderContext::ENCODE_3BIT: bit = 3; src = rgbOut3; fileCost += (pixelsInTile*3);	// Type(4 bit), 3 bit (Mode), Bbox(32), Per pix : 6 bit.
+								break;
+//							case EncoderContext::ENCODE_2BIT: bit = 2; src = rgbOut2; fileCost += (pixelsInTile*3);	// Type(4 bit), 3 bit (Mode), Bbox(32), Per pix : 6 bit.
+//								break;
+							}
 
-						// printf("Score Tile[%i] = %f\n",tileCnt,score);
+							// printf("Score Tile[%i] = %f\n",tileCnt,score);
 
-						if ((m != EncoderContext::SKIP_TOO_LOSSY) && diffSumL <= diffSum) {
-//								if (minScore > score) {
+							// If result is better than last one -> Get it.
+							if ((m != EncoderContext::SKIP_TOO_LOSSY) && diffSumL <= diffSum) {
 								bitMode  = m;
 								minScore = score;
 								evMin    = &ev;
@@ -4581,136 +4755,136 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileSiz
 								diffSum  = diffSumL;
 								bestSize = fileCost;
 
+								for (int ty=0; ty < tileSizeY; ty++) {
+									for (int tx=0; tx < tileSizeX; tx++) {
+										int idx = (tx+(ty*tileSizeX));
+										if (maskTile[idx]) { src+=3; continue; }
 
-								// TODO : Copy to output buffer.
-								// printf("3D MATCH [%i bit] [Type %i]: %i (%llx)\n",bit,foundE,tileCnt,maskTile[0]);
-
-								/*
-								u8 rgbD[8*8*3];
-								for (int n=0; n < 8*8*3;n++) { rgbD[n] = src[n]; } // Conversion int -> u8 in memory.
-								int err = stbi_write_png(buffer, 8, 8, 3, rgbD, 8*3);
-								*/
-
-								for (int y=0; y < tileSizeY; y++) {
-									for (int x=0; x < tileSizeX; x++) {
-										int idx = (x+(y*tileSizeX));
-										if ((maskTile[idx>>6] & (1ULL<<(idx&0x3F)))) { src+=3; continue; }
-
-										output->SetPixel(px+x,py+y,src[0]<<0,src[1]<<0,src[2]<<0);
+										output->SetPixel(tx+x,ty+y,src[0]<<0,src[1]<<0,src[2]<<0);
 										src += 3;
 									}
 								}
-//								}
+							}
 						}
-//							printf("[%i] Score %f @%i - ",tileCnt, score, e);
-					}
 
-//						printf("\n");
+						//
+						// There was at least one best score possible => Encode in binary stream...
+						//
+						if (found) {
+							matchTile++;
 
-					if (found) {
-						matchTile++;
+							// Color 1
+							corr3D_colorStream[streamColorCnt++] = bb3.x0>>0;
+							corr3D_colorStream[streamColorCnt++] = bb3.y0>>0;
+							corr3D_colorStream[streamColorCnt++] = bb3.z0>>0;
+							// Color 2
+							corr3D_colorStream[streamColorCnt++] = bb3.x1>>0;
+							corr3D_colorStream[streamColorCnt++] = bb3.y1>>0;
+							corr3D_colorStream[streamColorCnt++] = bb3.z1>>0;
 
-//							printf("[%i] Mode %i Score %f,%f @%i %s\n",tileCnt,foundM, minScore,fStdDev,foundE, found ? "USE" : "");
+							// Bitmap stream...
+							if (tileSizeX == 8) {
+								switch (tileSizeY) {
+								case  4: corr3D_sizeT8_4Map [pos>>3] |= 1<<(pos&7); break;
+								case  8: corr3D_sizeT8_8Map [pos>>3] |= 1<<(pos&7); break;
+								case 16: corr3D_sizeT8_16Map[pos>>3] |= 1<<(pos&7); break;
+								}
+							} else {
+								if (tileSizeX == 16) {
+									switch (tileSizeY) {
+									case 8: corr3D_sizeT16_8Map[pos>>3] |= 1<<(pos&7); break;
+									}
+								} else { // 4
+									switch (tileSizeY) {
+									case 4: corr3D_sizeT4_4Map[pos>>3] |= 1<<(pos&7); break;
+									case 8: corr3D_sizeT4_8Map[pos>>3] |= 1<<(pos&7); break;
+									}
+								}
+							}
 
-						// Color 1
-						corr3D_colorStream[streamColorCnt++] = bb3.x0>>0;
-						corr3D_colorStream[streamColorCnt++] = bb3.y0>>0;
-						corr3D_colorStream[streamColorCnt++] = bb3.z0>>0;
-						// Color 2
-						corr3D_colorStream[streamColorCnt++] = bb3.x1>>0;
-						corr3D_colorStream[streamColorCnt++] = bb3.y1>>0;
-						corr3D_colorStream[streamColorCnt++] = bb3.z1>>0;
+							corr3D_tileStreamTileType[streamTypeCnt++] = foundM48 | (bitMode<<6) | (foundE<<8); // Bit [0..5] : 48 3D Pattern, Bit [6..7] : 3/4/5/6 Bit Tile, Bit [8..15] : 256 Pattern Max.
+						
+							switch (bitMode) {
+//							case EncoderContext::ENCODE_2BIT:
+//								memcpy(&corr3D_stream2Bit[stream2BitCnt],evMin->value2Bit,pixelsInTile);
+//								stream2BitCnt += pixelsInTile;
+								break;
+							case EncoderContext::ENCODE_3BIT:
+								memcpy(&corr3D_stream3Bit[stream3BitCnt],evMin->value3Bit,pixelsInTile);
+								stream3BitCnt += pixelsInTile;
+								break;
+							case EncoderContext::ENCODE_4BIT:
+								memcpy(&corr3D_stream4Bit[stream4BitCnt],evMin->value4Bit,pixelsInTile);
+								stream4BitCnt += pixelsInTile;
+								break;
+							case EncoderContext::ENCODE_5BIT:
+								memcpy(&corr3D_stream5Bit[stream5BitCnt],evMin->value5Bit,pixelsInTile);
+								stream5BitCnt += pixelsInTile;
+								break;
+							case EncoderContext::ENCODE_6BIT:
+								memcpy(&corr3D_stream6Bit[stream6BitCnt],evMin->value6Bit,pixelsInTile);
+								stream6BitCnt += pixelsInTile;
+								break;
+							}
 
-						// Bitmap stream...
-						if (tileSizeX == 8) {
-							switch (tileSizeY) {
-							case 4: corr3D_sizeT8_4Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
-							case 8: corr3D_sizeT8_8Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
-							case 16: corr3D_sizeT8_16Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
+							//
+							// Remove Tile from usable tiles...
+							//
+							for (int ty=0; ty < tileSizeY; ty++) {
+								for (int tx=0; tx < tileSizeX; tx++) {
+									mapSmoothTile->SetPixel(x + tx, y + ty, 255,255,255);
+								}
 							}
 						} else {
-							if (tileSizeX == 16) {
-								switch (tileSizeY) {
-								case 8: corr3D_sizeT16_8Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
-								}
-							} else { // 4
-								switch (tileSizeY) {
-								case 4: corr3D_sizeT4_4Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
-								case 8: corr3D_sizeT4_8Map[tileCnt>>3] |= 1<<(tileCnt&7); break;
-								}
-							}
+							// printf("Skip tile %i\n",tileCnt);
 						}
 
-						corr3D_tileStreamTileType[streamTypeCnt++] = foundM48 | (bitMode<<6) | (foundE<<8); // Bit [0..5] : 48 3D Pattern, Bit [6..7] : 4/5/6 Bit Tile, Bit [8..15] : 256 Pattern Max.
-						
-						switch (bitMode) {
-						case EncoderContext::ENCODE_3BIT:
-							memcpy(&corr3D_stream3Bit[stream3BitCnt],evMin->value3Bit,pixelsInTile);
-							stream3BitCnt += pixelsInTile;
-							break;
-						case EncoderContext::ENCODE_4BIT:
-							memcpy(&corr3D_stream4Bit[stream4BitCnt],evMin->value4Bit,pixelsInTile);
-							stream4BitCnt += pixelsInTile;
-							break;
-						case EncoderContext::ENCODE_5BIT:
-							memcpy(&corr3D_stream5Bit[stream5BitCnt],evMin->value5Bit,pixelsInTile);
-							stream5BitCnt += pixelsInTile;
-							break;
-						}
 
-						//
-						// Remove Tile from usable tiles...
-						//
-						for (int y=0; y < tileSizeY; y++) {
-							for (int x=0; x < tileSizeX; x++) {
-								mapSmoothTile->SetPixel(x + px, y + py, 255,255,255);
-							}
-						}
-						/*
-						for (int n=0; n < 64*64*3; n+=3) {
-							if (evMin->color[0]) { renderBuffer[n  ] = evMin->color[0]; }
-							if (evMin->color[1]) { renderBuffer[n+1] = evMin->color[1]; }
-							if (evMin->color[2]) { renderBuffer[n+2] = evMin->color[2]; }
-						}
-						totalFileSize += bestSize;
-						totalTileCoCgCorrelate++;
-						*/
-					}
-
-//					int err = stbi_write_png(buffer, 64, 64, 3, renderBuffer, 64*3);
-//						printf("Tile %i Written\n",tileCnt);
-				} else {
-					// printf("Skip tile %i\n",tileCnt);
-				}
-			}
-
-			tileCnt++;
-		}
-	}
+					} // End 'valid tile' for verification ?
+					
+					kassert(pos < bitCountMap);
+					pos++;
+				} // Tile X end
+			} // Tile Y end
+		} // Swizzle block X end
+	} // Swizzle block Y end
 	printf("\n-----------------\nMATCHED TILE : %i\n-------------\n\n",matchTile);
 }
 
+int BitmapSwizzleMapSize(int TshiftX, int TshiftY, int imgW, int imgH) {
+	u32 swizzleParseX,swizzleParseY,bitCount;
+	HeaderGradientTile::getSwizzleSize(TshiftX,TshiftY,swizzleParseX,swizzleParseY, bitCount);
+	return ((imgW+swizzleParseX-1) / swizzleParseX) * ((imgH+swizzleParseY-1) / swizzleParseY) * bitCount;
+}
+
 void EncoderContext::StartCorrelationSearch3D() {
+	int wi   = original->GetWidth();
+	int hi	= original->GetHeight();
+
 	int size = original->GetWidth() * original->GetHeight();
 
+//	stream2BitCnt = 0;
 	stream3BitCnt = 0;
 	stream4BitCnt = 0;
 	stream5BitCnt = 0;
+	stream6BitCnt = 0;
 	streamColorCnt = 0;
 	streamTypeCnt  = 0;
 
-	int sizeT16_8Map	= (size /128) / 8;
-	int sizeT8_16Map	= (size /128) / 8;
-	int sizeT8_8Map		= (size / 64) / 8;
-	int sizeT4_8Map		= (size / 32) / 8;
-	int sizeT8_4Map		= (size / 32) / 8;
-	int sizeT4_4Map		= (size / 16) / 8;
+	int sizeT16_8Map	= BitmapSwizzleMapSize(4,3, wi,hi);
+	int sizeT8_16Map	= BitmapSwizzleMapSize(3,4, wi,hi);
+	int sizeT8_8Map		= BitmapSwizzleMapSize(3,3, wi,hi);
+	int sizeT4_8Map		= BitmapSwizzleMapSize(2,3, wi,hi);
+	int sizeT8_4Map		= BitmapSwizzleMapSize(3,2, wi,hi);
+	int sizeT4_4Map		= BitmapSwizzleMapSize(2,2, wi,hi);
 
-	int maxTileCount	= (size / 64) + (size / 16);
+	int maxTileCount	= (wi/4) * (hi*4); // ALL 4x4 (smallest, full image)
 
+	corr3D_stream6Bit = new u8[size];
 	corr3D_stream5Bit = new u8[size];
 	corr3D_stream4Bit = new u8[size];
 	corr3D_stream3Bit = new u8[size];
+//	corr3D_stream2Bit = new u8[size];
 
 	corr3D_sizeT16_8Map  = new u8[sizeT16_8Map];
 	corr3D_sizeT8_16Map  = new u8[sizeT8_16Map];
@@ -4747,7 +4921,85 @@ void EncoderContext::EndCorrelationSearch3D() {
 	int sizeT8_4Map		= (size / 32) / 8;
 	int sizeT4_4Map		= (size / 16) / 8;
 
-	size_t result;
+
+	HeaderTile3D header3D;
+	header3D.streamColorCnt = streamColorCnt;	// Nb Tile x 6
+	header3D.streamTypeCnt  = streamTypeCnt;	// Nb Tile
+//	header3D.stream2BitCnt  = stream2BitCnt;
+	header3D.stream3BitCnt  = stream3BitCnt;
+	header3D.stream4BitCnt  = stream4BitCnt;
+	header3D.stream5BitCnt  = stream5BitCnt;
+	header3D.stream6BitCnt  = stream6BitCnt;
+	/*
+	header3D.comprTypeSize  = ;
+	header3D.comprColorSize = ;
+	header3D.compr4BitSize  = ;
+	header3D.compr5BitSize  = ;
+	header3D.compr6BitSize  = ;
+
+	header3D.sizeT16_8Map   = ;
+	header3D.sizeT8_16Map   = ;
+	header3D.sizeT8_8Map    = ;
+	header3D.sizeT4_8Map    = ;
+	header3D.sizeT8_4Map    = ;
+
+	header3D.sizeT16_8MapCmp= ;
+	header3D.sizeT8_16MapCmp= ;
+	header3D.sizeT8_8MapCmp = ;
+	header3D.sizeT4_8MapCmp = ;
+	header3D.sizeT8_4MapCmp = ;
+	*/
+
+	// Stream : Tile Type first...
+	size_t result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_tileStreamTileType ,streamTypeCnt*sizeof(u16), 18);
+	fileOutSize += result;
+	printf("Stream Tile : %i\n",(int)result);
+
+	// Stream : Color Second
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_colorStream ,streamColorCnt, 18);
+	fileOutSize += result;
+	printf("Stream Color : %i\n",(int)result);
+
+	// TRICK : Multiply ALL the index by 3 to avoid computation at runtime
+	//         Index directly point to interleaved entry in the decoder. ! NOICE !
+	// We loose less than a few byte in compression, but it is worth the runtime savings.
+	//
+
+	// for (int n=0; n<stream2BitCnt; n++) { corr3D_stream2Bit[n] *= 3; }
+	for (int n=0; n<stream3BitCnt; n++) { corr3D_stream3Bit[n] *= 3; }
+	for (int n=0; n<stream4BitCnt; n++) { corr3D_stream4Bit[n] *= 3; }
+	for (int n=0; n<stream5BitCnt; n++) { corr3D_stream5Bit[n] *= 3; }
+	for (int n=0; n<stream6BitCnt; n++) { corr3D_stream6Bit[n] *= 3; }
+
+	/*
+	// Stream : 2 Bit
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream2Bit,stream2BitCnt, 18);
+	fileOutSize += result;
+	printf("Stream 2Bit : %i ",(int)result);
+	*/
+
+	// Stream : 3 Bit
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream3Bit,stream3BitCnt, 18);
+	fileOutSize += result;
+	printf("Stream 3Bit : %i\n",(int)result);
+
+	// Stream : 4 Bit
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream4Bit,stream4BitCnt, 18);
+	fileOutSize += result;
+	printf("Stream 4Bit : %i\n",(int)result);
+
+	// Stream : 5 Bit
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream5Bit,stream5BitCnt, 18);
+	fileOutSize += result;
+	printf("Stream 5Bit : %i\n",(int)result);
+
+	// Stream : 6 Bit
+	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream6Bit,stream6BitCnt, 18);
+	fileOutSize += result;
+	printf("Stream 6Bit : %i\n",(int)result);
+
+	// Stream : Map in order 16x8,8x16,8x8,4x8,8x4,4x4 (SAME ORDER AS ENCODER)
+
 	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT16_8Map,sizeT16_8Map, 18);
 	printf("T16_8 Map : %i\n",(int)result);
 	fileOutSize += result;
@@ -4779,48 +5031,13 @@ void EncoderContext::EndCorrelationSearch3D() {
 	size_t resultDico = ZDICT_trainFromBuffer(dictStore,1000000,corr3D_stream3Bit,sampleSizes,1);
 #endif
 
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream3Bit,stream3BitCnt, 16);
-	printf("Stream 3Bit : %i ",(int)result);
-
-	u8* stupidCompress = new u8[stream3BitCnt+1];
-	for (int n=0; n < stream3BitCnt; n++) {
-		if (n & 1) {
-			stupidCompress[n>>1] |= (corr3D_stream3Bit[n]<<4);
-		} else {
-			stupidCompress[n>>1] = corr3D_stream3Bit[n];
-		}
-	}
-	result = ZSTD_compress(pZStdStream, sizeZStd, stupidCompress,stream3BitCnt>>1, 18);
-	fileOutSize += result;
-	printf("(Stream 3Bit Packed : %i)\n",(int)result);
-
-	/*
-	ZSTD_CDict* cdict = ZSTD_createCDict(dictStore, resultDico, 16);
-
-	ZSTD_CCtx* const cctx = ZSTD_createCCtx();
-	result = ZSTD_compress_usingCDict(cctx, pZStdStream, sizeZStd, corr3D_stream3Bit, stream3BitCnt, cdict);
-	printf("Stream 3Bit No Dico : %i\n",(int)result);
-	*/
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream4Bit,stream4BitCnt, 18);
-	fileOutSize += result;
-	printf("Stream 4Bit : %i\n",(int)result);
-
-
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream5Bit,stream5BitCnt, 18);
-	fileOutSize += result;
-	printf("Stream 5Bit : %i\n",(int)result);
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_colorStream ,streamColorCnt, 18);
-	fileOutSize += result;
-	printf("Stream Color : %i\n",(int)result);
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_tileStreamTileType ,streamTypeCnt*sizeof(u16), 18);
-	fileOutSize += result;
-	printf("Stream Tile : %i\n",(int)result);
-
 	printf("File Size at this stage : %i\n", fileOutSize);
 
+	delete [] corr3D_stream6Bit;
 	delete [] corr3D_stream5Bit;
 	delete [] corr3D_stream4Bit;
 	delete [] corr3D_stream3Bit;
+//	delete [] corr3D_stream2Bit;
 
 	delete [] corr3D_sizeT16_8Map;
 	delete [] corr3D_sizeT8_16Map;
@@ -5007,44 +5224,44 @@ void EncoderContext::convert(const char* outputFile) {
 		// ---------------------------------------------------------------------------------------------------------------------------------------
 		// RGB 16x16 TILE
 		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,4,4); 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
 		// ---------------------------------------------------------------------------------------------------------------------------------------
 		// RGB 16x8 TILE
 		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,4,3); 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
 		// ---------------------------------------------------------------------------------------------------------------------------------------
 		// RGB 8x16 TILE
 		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,3,4); 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
 		// ---------------------------------------------------------------------------------------------------------------------------------------
 		// RGB 8x8 TILE
 		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,3,3); 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
 		// ---------------------------------------------------------------------------------------------------------------------------------------
 		// RGB 8x4 TILE
 		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,3,2); 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
 		// ---------------------------------------------------------------------------------------------------------------------------------------
 		// RGB 4x8 TILE
 		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,2,3); 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
 		// ---------------------------------------------------------------------------------------------------------------------------------------
 		// RGB 4x4 TILE
 		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,2,2); 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
 		/* PROTOTYPE TEST : 2x2 tile (irrealist, as it uses too much RGB pixel stream... just for debug/test purpose)
 		// ---------------------------------------------------------------------------------------------------------------------------------------
@@ -5062,24 +5279,26 @@ void EncoderContext::convert(const char* outputFile) {
 
 		// DumpTileRGB();
 		AnalyzeColorCount(original,8);
+	
+		mapSmoothTile->SavePNG("GradientMap.png",NULL);
 
 		StartCorrelationSearch3D();
-		Correlation3DSearch(original, output,16,8); // Test in RGB Space.
+		Correlation3DSearch(original, output,4,3); // Test in RGB Space.
 		output->SavePNG("Post3DTile.png",NULL);
 
-		Correlation3DSearch(original, output,8,16); // Test in RGB Space.
+		Correlation3DSearch(original, output,3,4); // Test in RGB Space.
 		output->SavePNG("Post3DTile.png",NULL);
 
-		Correlation3DSearch(original, output,8,8); // Test in RGB Space.
+		Correlation3DSearch(original, output,3,3); // Test in RGB Space.
 		output->SavePNG("Post3DTile.png",NULL);
 
-		Correlation3DSearch(original, output,8,4); // Test in RGB Space.
+		Correlation3DSearch(original, output,3,2); // Test in RGB Space.
 		output->SavePNG("Post3DTile.png",NULL);
 
-		Correlation3DSearch(original, output,4,8); // Test in RGB Space.
+		Correlation3DSearch(original, output,2,3); // Test in RGB Space.
 		output->SavePNG("Post3DTile.png",NULL);
 
-		Correlation3DSearch(original, output,4,4); // Test in RGB Space.
+		Correlation3DSearch(original, output,2,2); // Test in RGB Space.
 		output->SavePNG("Post3DTile.png",NULL);
 
 		EndCorrelationSearch3D(); // Header will be both 8 and 4 pixel tile stream...
@@ -5143,9 +5362,9 @@ void EncoderContext::convert(const char* outputFile) {
 			NULL,
 			output,useYCoCgForGradient,2,2);
 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("RGB16+8+4+Y Map.png",NULL);
-		mappedRGB->SavePNG("RGBField.png",NULL);
+//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+//		mapSmoothTile->SavePNG("RGB16+8+4+Y Map.png",NULL);
+//		mappedRGB->SavePNG("RGBField.png",NULL);
 
 		FittingQuadSmooth(rejectFactor,
 			NULL,
