@@ -4908,57 +4908,91 @@ void EncoderContext::StartCorrelationSearch3D() {
 #include "../external/zstd/zdict.h"
 
 void EncoderContext::EndCorrelationSearch3D() {
+	int wi   = original->GetWidth();
+	int hi	= original->GetHeight();
+
 	int sizeZStd = 10000000;
 	u8* pZStdStream = new u8[10000000];
 
-	int size = original->GetWidth() * original->GetHeight();
-	// TODO : Make sure alignment is ok internally...
-//	?;
-	int sizeT16_8Map	= (size /128) / 8;
-	int sizeT8_16Map	= (size /128) / 8;
-	int sizeT8_8Map		= (size / 64) / 8;
-	int sizeT4_8Map		= (size / 32) / 8;
-	int sizeT8_4Map		= (size / 32) / 8;
-	int sizeT4_4Map		= (size / 16) / 8;
-
+	int sizeT16_8Map	= BitmapSwizzleMapSize(4,3, wi,hi);
+	int sizeT8_16Map	= BitmapSwizzleMapSize(3,4, wi,hi);
+	int sizeT8_8Map		= BitmapSwizzleMapSize(3,3, wi,hi);
+	int sizeT4_8Map		= BitmapSwizzleMapSize(2,3, wi,hi);
+	int sizeT8_4Map		= BitmapSwizzleMapSize(3,2, wi,hi);
+	int sizeT4_4Map		= BitmapSwizzleMapSize(2,2, wi,hi);
 
 	HeaderTile3D header3D;
-	header3D.streamColorCnt = streamColorCnt;	// Nb Tile x 6
-	header3D.streamTypeCnt  = streamTypeCnt;	// Nb Tile
-//	header3D.stream2BitCnt  = stream2BitCnt;
-	header3D.stream3BitCnt  = stream3BitCnt;
-	header3D.stream4BitCnt  = stream4BitCnt;
-	header3D.stream5BitCnt  = stream5BitCnt;
-	header3D.stream6BitCnt  = stream6BitCnt;
-	/*
-	header3D.comprTypeSize  = ;
-	header3D.comprColorSize = ;
-	header3D.compr4BitSize  = ;
-	header3D.compr5BitSize  = ;
-	header3D.compr6BitSize  = ;
 
-	header3D.sizeT16_8Map   = ;
-	header3D.sizeT8_16Map   = ;
-	header3D.sizeT8_8Map    = ;
-	header3D.sizeT4_8Map    = ;
-	header3D.sizeT8_4Map    = ;
+	size_t result;
 
-	header3D.sizeT16_8MapCmp= ;
-	header3D.sizeT8_16MapCmp= ;
-	header3D.sizeT8_8MapCmp = ;
-	header3D.sizeT4_8MapCmp = ;
-	header3D.sizeT8_4MapCmp = ;
-	*/
+	u8* ZStdT16_8Map	= new u8[sizeT16_8Map * 2];
+	u8* ZStdT8_16Map	= new u8[sizeT8_16Map * 2];
+	u8* ZStdT8_8Map		= new u8[sizeT8_8Map * 2];
+	u8* ZStdT8_4Map		= new u8[sizeT8_4Map * 2];
+	u8* ZStdT4_8Map		= new u8[sizeT4_8Map * 2];
+	u8* ZStdT4_4Map		= new u8[sizeT4_4Map * 2];
+
+	u8* ZStdTileStream	= new u8[streamTypeCnt*sizeof(u16) * 2];
+	u8* ZStdColorStream	= new u8[streamColorCnt * 2];
+
+	// --------------------------------------------------------------------------------
+	//   Bit Tile Maps.
+	// --------------------------------------------------------------------------------
+
+	result = ZSTD_compress(ZStdT16_8Map, sizeT16_8Map * 2, corr3D_sizeT16_8Map,sizeT16_8Map, 18);
+	printf("T16_8 Map : %i\n",(int)result);
+	fileOutSize += result;
+	header3D.sizeT16_8MapCmp = result;
+	header3D.sizeT16_8Map   = sizeT16_8Map;
+
+	result = ZSTD_compress(ZStdT8_16Map, sizeT8_16Map * 2, corr3D_sizeT8_16Map,sizeT8_16Map, 18);
+	printf("T4 Map : %i\n",(int)result);
+	fileOutSize += result;
+	header3D.sizeT8_16Map   = sizeT8_16Map;
+	header3D.sizeT8_16MapCmp = result;
+
+	result = ZSTD_compress(ZStdT8_8Map, sizeT8_8Map * 2, corr3D_sizeT8_8Map,sizeT8_8Map, 18);
+	printf("T8 Map : %i\n",(int)result);
+	fileOutSize += result;
+	header3D.sizeT8_8Map    = sizeT8_8Map;
+	header3D.sizeT8_8MapCmp = result;
+
+	result = ZSTD_compress(ZStdT8_4Map, sizeT4_8Map * 2, corr3D_sizeT4_8Map,sizeT4_8Map, 18);
+	printf("T4 Map : %i\n",(int)result);
+	fileOutSize += result;
+	header3D.sizeT4_8Map    = sizeT4_8Map;
+	header3D.sizeT4_8MapCmp = result;
+
+	result = ZSTD_compress(ZStdT4_8Map, sizeT8_4Map * 2, corr3D_sizeT8_4Map,sizeT8_4Map, 18);
+	printf("T8 Map : %i\n",(int)result);
+	fileOutSize += result;
+	header3D.sizeT8_4Map    = sizeT8_4Map;
+	header3D.sizeT8_4MapCmp = result;
+
+	result = ZSTD_compress(ZStdT4_4Map, sizeT4_4Map * 2, corr3D_sizeT4_4Map,sizeT4_4Map, 18);
+	printf("T4 Map : %i\n",(int)result);
+	fileOutSize += result;
+	header3D.sizeT4_4Map    = sizeT4_4Map;
+	header3D.sizeT4_4MapCmp = result;
+
 
 	// Stream : Tile Type first...
-	size_t result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_tileStreamTileType ,streamTypeCnt*sizeof(u16), 18);
+	result = ZSTD_compress(ZStdTileStream, streamTypeCnt*sizeof(u16)*2, corr3D_tileStreamTileType ,streamTypeCnt*sizeof(u16), 18);
 	fileOutSize += result;
+	header3D.streamTypeCnt  = streamTypeCnt;	// Nb Tile
+	header3D.comprTypeSize  = result;
 	printf("Stream Tile : %i\n",(int)result);
 
 	// Stream : Color Second
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_colorStream ,streamColorCnt, 18);
+	result = ZSTD_compress(ZStdColorStream, streamColorCnt * 2, corr3D_colorStream ,streamColorCnt, 18);
 	fileOutSize += result;
+	header3D.streamColorCnt = streamColorCnt;	// Nb Tile x 6
+	header3D.comprColorSize = result;
 	printf("Stream Color : %i\n",(int)result);
+
+	// --------------------------------------------------------------------------------
+	//   Pixel Index Stream...
+	// --------------------------------------------------------------------------------
 
 	// TRICK : Multiply ALL the index by 3 to avoid computation at runtime
 	//         Index directly point to interleaved entry in the decoder. ! NOICE !
@@ -4977,52 +5011,42 @@ void EncoderContext::EndCorrelationSearch3D() {
 	fileOutSize += result;
 	printf("Stream 2Bit : %i ",(int)result);
 	*/
+	u8* ZStdStream6Bit	= new u8[stream6BitCnt * 2];
+	u8* ZStdStream5Bit	= new u8[stream5BitCnt * 2];
+	u8* ZStdStream4Bit	= new u8[stream4BitCnt * 2];
+	u8* ZStdStream3Bit	= new u8[stream3BitCnt * 2];
 
 	// Stream : 3 Bit
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream3Bit,stream3BitCnt, 18);
+	result = ZSTD_compress(ZStdStream3Bit, stream3BitCnt * 2, corr3D_stream3Bit,stream3BitCnt, 18);
 	fileOutSize += result;
+	header3D.stream3BitCnt  = stream3BitCnt;
+	header3D.compr3BitSize  = result;
 	printf("Stream 3Bit : %i\n",(int)result);
 
 	// Stream : 4 Bit
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream4Bit,stream4BitCnt, 18);
+	result = ZSTD_compress(ZStdStream4Bit, stream4BitCnt * 2, corr3D_stream4Bit,stream4BitCnt, 18);
 	fileOutSize += result;
+	header3D.stream4BitCnt  = stream4BitCnt;
+	header3D.compr4BitSize  = result;
 	printf("Stream 4Bit : %i\n",(int)result);
 
 	// Stream : 5 Bit
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream5Bit,stream5BitCnt, 18);
+	result = ZSTD_compress(ZStdStream5Bit, stream5BitCnt * 2, corr3D_stream5Bit,stream5BitCnt, 18);
 	fileOutSize += result;
+	header3D.stream5BitCnt  = stream5BitCnt;
+	header3D.compr5BitSize  = result;
 	printf("Stream 5Bit : %i\n",(int)result);
 
 	// Stream : 6 Bit
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_stream6Bit,stream6BitCnt, 18);
+	result = ZSTD_compress(ZStdStream6Bit, stream6BitCnt * 2, corr3D_stream6Bit,stream6BitCnt, 18);
 	fileOutSize += result;
+	header3D.stream6BitCnt  = stream6BitCnt;
+	header3D.compr6BitSize  = result;
 	printf("Stream 6Bit : %i\n",(int)result);
 
-	// Stream : Map in order 16x8,8x16,8x8,4x8,8x4,4x4 (SAME ORDER AS ENCODER)
-
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT16_8Map,sizeT16_8Map, 18);
-	printf("T16_8 Map : %i\n",(int)result);
-	fileOutSize += result;
-
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT8_16Map,sizeT8_16Map, 18);
-	printf("T4 Map : %i\n",(int)result);
-	fileOutSize += result;
-
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT8_8Map,sizeT8_8Map, 18);
-	printf("T8 Map : %i\n",(int)result);
-	fileOutSize += result;
-
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT4_8Map,sizeT4_8Map, 18);
-	printf("T4 Map : %i\n",(int)result);
-	fileOutSize += result;
-
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT8_4Map,sizeT8_4Map, 18);
-	printf("T8 Map : %i\n",(int)result);
-	fileOutSize += result;
-
-	result = ZSTD_compress(pZStdStream, sizeZStd, corr3D_sizeT4_4Map,sizeT4_4Map, 18);
-	printf("T4 Map : %i\n",(int)result);
-	fileOutSize += result;
+	// Stream : Color, Tile Map
+	// Stream : 3,4,5,6 Bit
+	// Last Stream : Map in order 16x8,8x16,8x8,4x8,8x4,4x4 (SAME ORDER AS ENCODER)
 
 #if 0
 	u8* dictStore = new u8[1000000]; // 1 MB
@@ -5032,6 +5056,61 @@ void EncoderContext::EndCorrelationSearch3D() {
 #endif
 
 	printf("File Size at this stage : %i\n", fileOutSize);
+
+	HeaderBase headerTag;
+	headerTag.tag.tag8[0] = '3';
+	headerTag.tag.tag8[1] = 'D';
+	headerTag.tag.tag8[2] = 'T';
+	headerTag.tag.tag8[3] = 'L';
+
+	int baseSize = (sizeof(HeaderGradientTile)	+ header3D.compr3BitSize + header3D.compr4BitSize + header3D.compr6BitSize
+
+												+ header3D.comprColorSize + header3D.comprTypeSize
+		
+												+ header3D.sizeT16_8MapCmp + header3D.sizeT8_16MapCmp
+												+ header3D.sizeT8_8MapCmp + header3D.sizeT8_4MapCmp
+												+ header3D.sizeT4_8MapCmp + header3D.sizeT4_4MapCmp);
+
+	headerTag.length	  = ((baseSize + 3) >> 2) <<2;	// Round multiple of 4.
+	u8 pad[3] = { 0,0,0 };
+	int padding = headerTag.length - baseSize;
+
+	fwrite(&headerTag, 1,sizeof(HeaderBase)  ,outFile);
+	fwrite(&header3D , 1,sizeof(HeaderTile3D),outFile);
+
+	// Write all Bit Stream
+	fwrite(ZStdStream3Bit,1,header3D.compr3BitSize,outFile);
+	fwrite(ZStdStream4Bit,1,header3D.compr4BitSize,outFile);
+	fwrite(ZStdStream5Bit,1,header3D.compr5BitSize,outFile);
+	fwrite(ZStdStream6Bit,1,header3D.compr6BitSize,outFile);
+
+	fwrite(ZStdTileStream,1,header3D.comprTypeSize,outFile);
+	fwrite(ZStdColorStream,1,header3D.comprColorSize,outFile);
+
+
+	fwrite(ZStdT16_8Map,1,sizeT16_8Map,outFile);
+	fwrite(ZStdT8_16Map,1,sizeT8_16Map,outFile);
+	fwrite(ZStdT8_8Map ,1,sizeT8_8Map ,outFile);
+	fwrite(ZStdT8_4Map ,1,sizeT8_4Map ,outFile);
+	fwrite(ZStdT4_8Map ,1,sizeT4_8Map ,outFile);
+	fwrite(ZStdT4_4Map ,1,sizeT4_4Map ,outFile);
+
+	if (padding) { fwrite(pad, 1, padding, outFile); }
+
+	delete[] ZStdStream6Bit;
+	delete[] ZStdStream5Bit;
+	delete[] ZStdStream4Bit;
+	delete[] ZStdStream3Bit;
+	delete[] ZStdTileStream;
+	delete[] ZStdColorStream;
+
+	delete[] ZStdT16_8Map;
+	delete[] ZStdT8_16Map;
+	delete[] ZStdT8_8Map;
+	delete[] ZStdT8_4Map;
+	delete[] ZStdT4_8Map;
+	delete[] ZStdT4_4Map;
+
 
 	delete [] corr3D_stream6Bit;
 	delete [] corr3D_stream5Bit;
