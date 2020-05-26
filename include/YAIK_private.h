@@ -311,6 +311,19 @@ struct HeaderTile3D {
 	u16 sizeT4_8MapCmp;
 	u16 sizeT8_4MapCmp;
 	u16 sizeT4_4MapCmp;
+
+	// + Stream 3 Bit
+	// + Stream 4 Bit
+	// + Stream 5 Bit
+	// + Stream 6 Bit
+	// + Tile  Stream
+	// + Color Stream
+	// + T16_8 Tile Map
+	// + T8_16 Tile Map
+	// + T8_8  Tile Map
+	// + T8_4  Tile Map
+	// + T4_8  Tile Map
+	// + T4_4  Tile Map
 };
 
 #define EncodeTileType(t,r,b)		(((t)<<13)|((r)<<7)|(b))

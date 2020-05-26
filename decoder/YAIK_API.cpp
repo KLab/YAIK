@@ -57,6 +57,7 @@ void			SetErrorCode(YAIK_ERROR_CODE error) {
 #define TAG_SMOOTH		(0x50414d53)
 #define TAG_PLANE		(0x544e4c50)
 #define TAG_GRADTILE	(0x4c495447)
+#define TAG_TILE3D		(0x4c544433)
 
 void wrongOrder() {
 	kassert(false); // Not implemented.
@@ -226,6 +227,7 @@ void kassert(bool validCond) {
 }
 
 bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDecodedImage* context) {
+	bool					res = false;
 	YAIK_Instance*	pCtx		= (YAIK_Instance*)context->internalTag;
 	FileHeader*		pHeader		= (FileHeader*)sourceStreamAligned;
 	YAIK_SMemAlloc& allocCtx	= pCtx->allocCtx;
@@ -397,6 +399,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				state = 4;
 
+				/*
 				if (!pCtx->mipMapMask) {
 					BoundingBox bbox;
 					bbox.x = 0;
@@ -407,6 +410,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						goto error;
 					};
 				}
+				*/
 
 				if (!pCtx->mapRGB) {
 					pCtx->strideRGBMap  = DIV4(pCtx->width)+1;
@@ -419,6 +423,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					pCtx->tile4x4Mask   = (u8*)AllocateMem(&allocCtx,pCtx->tile4x4MaskSize*3); // Map 1 bit per 4x4 tile : know if pixel are used or not by gradient decode.
 					pCtx->singleRGB		= true;
 					if ((pCtx->mapRGB == NULL) || (pCtx->mapRGBMask == NULL) || (pCtx->tile4x4Mask == NULL)) {
+						// Memory Free happen in context free.
 						goto error;
 					}
 
@@ -497,8 +502,121 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 	#endif
 #endif
 			}
-		}
 			break;
+		}
+		case TAG_TILE3D:
+		{
+			if (state <= 4) {
+				state = 4;
+
+				HeaderTile3D* pHeader = (HeaderTile3D*)pBlock;
+				u8* stream3Bit = (u8*)(&pHeader[1]);
+				u8* stream4Bit = &stream3Bit[pHeader->compr3BitSize];
+				u8* stream5Bit = &stream4Bit[pHeader->compr4BitSize];
+				u8* stream6Bit = &stream5Bit[pHeader->compr5BitSize];
+				u8* tileStream = &stream6Bit[pHeader->compr6BitSize];
+				u8* colorStream= &tileStream[pHeader->comprTypeSize];
+				u8* tmap16_8   = &colorStream[pHeader->comprColorSize];
+				u8* tmap8_16   = &tmap16_8  [pHeader->sizeT16_8MapCmp ];
+				u8* tmap8_8    = &tmap8_16  [pHeader->sizeT8_16MapCmp ];
+				u8* tmap8_4    = &tmap8_8   [pHeader->sizeT8_8MapCmp  ];
+				u8* tmap4_8    = &tmap8_4   [pHeader->sizeT8_4MapCmp  ];
+				u8* tmap4_4    = &tmap4_8   [pHeader->sizeT4_8MapCmp  ];
+
+				Tile3DParam t3dParam;
+
+				t3dParam.stream3Bit	= DecompressData(pCtx,stream3Bit,pHeader->compr3BitSize,pHeader->stream3BitCnt);
+				t3dParam.stream4Bit	= DecompressData(pCtx,stream4Bit,pHeader->compr4BitSize,pHeader->stream4BitCnt);
+				t3dParam.stream5Bit	= DecompressData(pCtx,stream5Bit,pHeader->compr5BitSize,pHeader->stream5BitCnt);
+				t3dParam.stream6Bit	= DecompressData(pCtx,stream6Bit,pHeader->compr6BitSize,pHeader->stream6BitCnt);
+
+				t3dParam.tileStream	= (u16*)DecompressData(pCtx,tileStream ,pHeader->comprTypeSize ,pHeader->streamTypeCnt*sizeof(u16));	// One tile is 2 byte.
+				t3dParam.colorStream= DecompressData(pCtx,colorStream,pHeader->comprColorSize,pHeader->streamColorCnt);				// Tile Count x 6
+
+				Tile3DParam t3dParamPtrDelete = t3dParam; // Copy Struct.
+
+				if		(	!t3dParam.stream3Bit 
+						||	!t3dParam.stream4Bit
+						||	!t3dParam.stream5Bit
+						||	!t3dParam.stream6Bit
+						||	!t3dParam.tileStream
+						||	!t3dParam.colorStream ) {
+
+					// Try to free was has been allocated locally if error.
+					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream3Bit);
+					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream4Bit);
+					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream5Bit);
+					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream6Bit);
+
+					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.colorStream);
+					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.tileStream);
+
+					// Code already set by error code.
+					goto error;
+				}
+
+
+				// TODO : possibly some flag to speed up 'empty' channel. ?
+				// Start/End ? Empty ?
+
+				t3dParam.currentMap	= DecompressData(pCtx,tmap16_8, pHeader->sizeT16_8MapCmp, pHeader->sizeT16_8Map);
+				if (t3dParam.currentMap) {
+					Tile3D_16x8(pCtx,pHeader,&t3dParam);
+					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
+				} else {
+					goto error;
+				}
+
+				t3dParam.currentMap	= DecompressData(pCtx,tmap8_16, pHeader->sizeT8_16MapCmp, pHeader->sizeT8_16Map);
+				if (t3dParam.currentMap) {
+					Tile3D_8x16(pCtx,pHeader,&t3dParam);
+					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
+				} else {
+					goto error;
+				}
+
+				t3dParam.currentMap	= DecompressData(pCtx,tmap8_8,  pHeader->sizeT8_8MapCmp,  pHeader->sizeT8_8Map );
+				if (t3dParam.currentMap) {
+					Tile3D_8x8(pCtx,pHeader,&t3dParam);
+					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
+				} else {
+					goto error;
+				}
+
+				t3dParam.currentMap	= DecompressData(pCtx,tmap8_4, pHeader->sizeT8_4MapCmp, pHeader->sizeT8_4Map);
+				if (t3dParam.currentMap) {
+					Tile3D_8x4(pCtx,pHeader,&t3dParam);
+					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
+				} else {
+					goto error;
+				}
+
+				t3dParam.currentMap	= DecompressData(pCtx,tmap4_8, pHeader->sizeT4_8MapCmp, pHeader->sizeT4_8Map);
+				if (t3dParam.currentMap) {
+					Tile3D_4x8(pCtx,pHeader,&t3dParam);
+					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
+				} else {
+					goto error;
+				}
+
+				t3dParam.currentMap	= DecompressData(pCtx,tmap4_4, pHeader->sizeT4_4MapCmp, pHeader->sizeT4_4Map);
+				if (t3dParam.currentMap) {
+					Tile3D_4x4(pCtx,pHeader,&t3dParam);
+					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
+				} else {
+					goto error;
+				}
+
+				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream3Bit);
+				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream4Bit);
+				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream5Bit);
+				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream6Bit);
+
+				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.colorStream);
+				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.tileStream);
+			}
+			break;
+		}
 
 		// Other todo....
 
@@ -526,6 +644,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 	// Copy, interleave, remix to the target buffer.
 	context->customImageOutput(context,&srcInfo);
 
+	res = true;
+error:
 	// Free all the memory allocated (or not : NULL is OK)
 	allocCtx.customFree(&allocCtx,pCtx->alphaChannel	);
 	allocCtx.customFree(&allocCtx,pCtx->mapRGB			);
@@ -535,7 +655,5 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 	allocCtx.customFree(&allocCtx,pCtx->tile4x4Mask		);
 
 	gLibrary.FreeInstance(pCtx);
-	return true;
-error:
-	return false;
+	return res;
 }

@@ -4957,17 +4957,17 @@ void EncoderContext::EndCorrelationSearch3D() {
 	header3D.sizeT8_8Map    = sizeT8_8Map;
 	header3D.sizeT8_8MapCmp = result;
 
-	result = ZSTD_compress(ZStdT8_4Map, sizeT4_8Map * 2, corr3D_sizeT4_8Map,sizeT4_8Map, 18);
+	result = ZSTD_compress(ZStdT8_4Map, sizeT8_4Map * 2, corr3D_sizeT8_4Map,sizeT8_4Map, 18);
 	printf("T4 Map : %i\n",(int)result);
-	fileOutSize += result;
-	header3D.sizeT4_8Map    = sizeT4_8Map;
-	header3D.sizeT4_8MapCmp = result;
-
-	result = ZSTD_compress(ZStdT4_8Map, sizeT8_4Map * 2, corr3D_sizeT8_4Map,sizeT8_4Map, 18);
-	printf("T8 Map : %i\n",(int)result);
 	fileOutSize += result;
 	header3D.sizeT8_4Map    = sizeT8_4Map;
 	header3D.sizeT8_4MapCmp = result;
+
+	result = ZSTD_compress(ZStdT4_8Map, sizeT4_8Map * 2, corr3D_sizeT4_8Map,sizeT4_8Map, 18);
+	printf("T8 Map : %i\n",(int)result);
+	fileOutSize += result;
+	header3D.sizeT4_8Map    = sizeT4_8Map;
+	header3D.sizeT4_8MapCmp = result;
 
 	result = ZSTD_compress(ZStdT4_4Map, sizeT4_4Map * 2, corr3D_sizeT4_4Map,sizeT4_4Map, 18);
 	printf("T4 Map : %i\n",(int)result);
@@ -4977,6 +4977,9 @@ void EncoderContext::EndCorrelationSearch3D() {
 
 
 	// Stream : Tile Type first...
+	for (int t=0; t < 20; t++) { printf("%i-",corr3D_tileStreamTileType[t]); }
+	printf("\t\t");
+
 	result = ZSTD_compress(ZStdTileStream, streamTypeCnt*sizeof(u16)*2, corr3D_tileStreamTileType ,streamTypeCnt*sizeof(u16), 18);
 	fileOutSize += result;
 	header3D.streamTypeCnt  = streamTypeCnt;	// Nb Tile
@@ -4984,6 +4987,9 @@ void EncoderContext::EndCorrelationSearch3D() {
 	printf("Stream Tile : %i\n",(int)result);
 
 	// Stream : Color Second
+	for (int t=0; t < 20; t++) { printf("%i-",corr3D_colorStream[t]); }
+	printf("\t\t");
+
 	result = ZSTD_compress(ZStdColorStream, streamColorCnt * 2, corr3D_colorStream ,streamColorCnt, 18);
 	fileOutSize += result;
 	header3D.streamColorCnt = streamColorCnt;	// Nb Tile x 6
@@ -5063,7 +5069,7 @@ void EncoderContext::EndCorrelationSearch3D() {
 	headerTag.tag.tag8[2] = 'T';
 	headerTag.tag.tag8[3] = 'L';
 
-	int baseSize = (sizeof(HeaderGradientTile)	+ header3D.compr3BitSize + header3D.compr4BitSize + header3D.compr6BitSize
+	int baseSize = (sizeof(HeaderTile3D)	+ header3D.compr3BitSize + header3D.compr4BitSize + header3D.compr5BitSize + header3D.compr6BitSize
 
 												+ header3D.comprColorSize + header3D.comprTypeSize
 		
@@ -5087,13 +5093,12 @@ void EncoderContext::EndCorrelationSearch3D() {
 	fwrite(ZStdTileStream,1,header3D.comprTypeSize,outFile);
 	fwrite(ZStdColorStream,1,header3D.comprColorSize,outFile);
 
-
-	fwrite(ZStdT16_8Map,1,sizeT16_8Map,outFile);
-	fwrite(ZStdT8_16Map,1,sizeT8_16Map,outFile);
-	fwrite(ZStdT8_8Map ,1,sizeT8_8Map ,outFile);
-	fwrite(ZStdT8_4Map ,1,sizeT8_4Map ,outFile);
-	fwrite(ZStdT4_8Map ,1,sizeT4_8Map ,outFile);
-	fwrite(ZStdT4_4Map ,1,sizeT4_4Map ,outFile);
+	fwrite(ZStdT16_8Map,1,header3D.sizeT16_8MapCmp,outFile);
+	fwrite(ZStdT8_16Map,1,header3D.sizeT8_16MapCmp,outFile);
+	fwrite(ZStdT8_8Map ,1,header3D.sizeT8_8MapCmp ,outFile);
+	fwrite(ZStdT8_4Map ,1,header3D.sizeT8_4MapCmp ,outFile);
+	fwrite(ZStdT4_8Map ,1,header3D.sizeT4_8MapCmp ,outFile);
+	fwrite(ZStdT4_4Map ,1,header3D.sizeT4_4MapCmp ,outFile);
 
 	if (padding) { fwrite(pad, 1, padding, outFile); }
 

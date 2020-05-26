@@ -92,6 +92,29 @@ void DecompressGradient4x4						(YAIK_Instance* pInstance
 												,u8				planeBit);
 
 // -----------------------------------------------------------------------------------------------------------------------------------------
+//   3D LUT TILE
+// -----------------------------------------------------------------------------------------------------------------------------------------
+
+// Parameters to pass to the function and update from function.
+struct Tile3DParam {
+	u8* stream3Bit;
+	u8* stream4Bit;
+	u8* stream5Bit;
+	u8* stream6Bit;
+	u16* tileStream;
+	u8* colorStream;
+
+	u8* currentMap;
+};
+
+void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
+void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
+void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
+void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
+void Tile3D_4x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
+void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
+
+// -----------------------------------------------------------------------------------------------------------------------------------------
 //   Generic Math Bit Macro to make code a bit clearer
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
