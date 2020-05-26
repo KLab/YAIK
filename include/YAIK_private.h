@@ -285,7 +285,6 @@ struct PlaneTile {
 };
 
 struct HeaderTile3D {
-	// [TODO]
 	u32 streamColorCnt;
 	u32 streamTypeCnt;
 	u32 stream3BitCnt;
@@ -304,12 +303,14 @@ struct HeaderTile3D {
 	u16 sizeT8_8Map;
 	u16 sizeT4_8Map;
 	u16 sizeT8_4Map;
+	u16 sizeT4_4Map;
 
 	u16 sizeT16_8MapCmp;
 	u16 sizeT8_16MapCmp;
 	u16 sizeT8_8MapCmp;
 	u16 sizeT4_8MapCmp;
 	u16 sizeT8_4MapCmp;
+	u16 sizeT4_4MapCmp;
 };
 
 #define EncodeTileType(t,r,b)		(((t)<<13)|((r)<<7)|(b))
