@@ -61,13 +61,25 @@ struct YAIK_Library {
 	YAIK_Instance*	freeStack[257]; // API Limit to u8 type max of multithreaded decode context.
 	// Allocate slots.
 	YAIK_Instance*	instances;
-
+	u8*				LUT3D_BitFormat[4];
+	YAIK_SMemAlloc	libraryAllocator;
 	YAIK_Instance*	AllocInstance	();
 	void			FreeInstance	(YAIK_Instance* inst);
 };
 
 //--------------------------------------------------------------------------------------------------------------------
-//   Internal File Data Structures
+//   Internal File Data Structures : LUT HEADER FILES
+//--------------------------------------------------------------------------------------------------------------------
+
+struct LUTHeader {
+	u8 lutH[4];
+	u8 version;
+	u8 entryCount;		// Start from 1 = 1..256
+	u8 padding_extension[2];
+};
+
+//--------------------------------------------------------------------------------------------------------------------
+//   Internal File Data Structures : YAIK FILES
 //--------------------------------------------------------------------------------------------------------------------
 
 /*	Common header of each file section 

@@ -40,6 +40,8 @@ void releaseMemory(YAIK_Instance* pCtx, void* ptr) {
 }
 
 YAIK_ERROR_CODE	gErrorCode = YAIK_NO_ERROR;
+YAIK_Library	gLibrary;
+
 void			SetErrorCode(YAIK_ERROR_CODE error) {
 	// Sticky bit...
 	if (gErrorCode == YAIK_NO_ERROR) {
@@ -63,13 +65,22 @@ void wrongOrder() {
 	kassert(false); // Not implemented.
 }
 
-YAIK_ERROR_CODE YAIK_GetErrorCode() {
-	YAIK_ERROR_CODE res = gErrorCode;
-	gErrorCode = YAIK_NO_ERROR;
+
+//-------------------------------------------------------------------------------------
+// Wrapper function to use memory allocators.
+// and other function used in this source file.
+//-------------------------------------------------------------------------------------
+u8*  AllocateMem (YAIK_SMemAlloc* allocCtx, size_t size) {
+	u8* res = (u8*)allocCtx->customAlloc(allocCtx, size);
+	if (!res) {
+		SetErrorCode(YAIK_MALLOC_FAIL);
+	}
 	return res;
 }
 
-YAIK_Library	gLibrary;
+void FreeMem	 (YAIK_SMemAlloc* allocCtx, void*  ptr ) {
+	if (ptr) { allocCtx->customFree(allocCtx, ptr); }
+}
 
 YAIK_Instance* YAIK_Library::AllocInstance() {
 	// [TODO : Use MUTEX ? ATOMIC]. What happen if go too far ? (Use 257 entries with GUARD NULL ?)
@@ -86,56 +97,213 @@ void			YAIK_Library::FreeInstance(YAIK_Instance* inst) {
 	freeStack[gLibrary.freeSlotCount++] = inst;
 }
 
-u32				YAIK_GetLibraryMemoryAmount(u8 maxDecodeThreadContext) {
+void kassert(bool validCond) {
+	if (!validCond) {
+		PRINTF("Error");
+		while (1) {
+		}
+	}
+}
+
+//-------------------------------------------------------------------------------------
+
+YAIK_ERROR_CODE YAIK_GetErrorCode() {
+	YAIK_ERROR_CODE res = gErrorCode;
+	gErrorCode = YAIK_NO_ERROR;
+	return res;
+}
+
+// -----------------------------------------------------------------------------------------------
+//		YAIK_Init
+// -----------------------------------------------------------------------------------------------
+YAIK_LIB		YAIK_Init			(u8 maxDecodeThreadContext, YAIK_SMemAlloc* allocator) {
 	if (maxDecodeThreadContext) {
 		SetErrorCode(YAIK_NO_ERROR);
+		if (allocator == NULL) {
+			// Setup Default Memory Allocator.
+			gLibrary.libraryAllocator.customContext	= NULL;
+			gLibrary.libraryAllocator.customAlloc	= internal_allocFunc;
+			gLibrary.libraryAllocator.customFree	= internal_freeFunc;
+		} else {
+			// Setup User Memory Allocator.
+			gLibrary.libraryAllocator = *allocator;
+		}
 		gLibrary.instances			= NULL;
 		gLibrary.totalSlotCount		= maxDecodeThreadContext;
 		gLibrary.freeSlotCount		= 0;
 
-		return maxDecodeThreadContext * sizeof(YAIK_Instance);
-	} else {
-		SetErrorCode(YAIK_INVALID_CONTEXT_COUNT);
-		return 0;
-	}
-}
+		u8* memory = AllocateMem(&gLibrary.libraryAllocator, maxDecodeThreadContext * sizeof(YAIK_Instance) );
 
-YAIK_LIB		YAIK_Init			(void* memory, u8 maxDecodeThreadContext) {
-	if (gLibrary.freeSlotCount != 0 || (gLibrary.totalSlotCount != maxDecodeThreadContext)) {
-		SetErrorCode(YAIK_INVALID_CONTEXT_COUNT);
-		return NULL;
-	}
+		if (memory) {
+			// Return the amount of memory required to perform library init.
+			gLibrary.totalSlotCount = maxDecodeThreadContext;
+			gLibrary.freeSlotCount	= maxDecodeThreadContext;
+			gLibrary.instances		= (YAIK_Instance*)memory;
+			for (int n = 0; n < maxDecodeThreadContext; n++) {
+				gLibrary.freeStack[n] = &gLibrary.instances[n];
+			}
 
-	if (memory) {
-		// Return the amount of memory required to perform library init.
-		gLibrary.totalSlotCount = maxDecodeThreadContext;
-		gLibrary.freeSlotCount	= maxDecodeThreadContext;
-		gLibrary.instances		= (YAIK_Instance*)memory;
-		for (int n = 0; n < maxDecodeThreadContext; n++) {
-			gLibrary.freeStack[n] = &gLibrary.instances[n];
-		}
-
-		if (InitLUT()) {
 			return &gLibrary;
 		} else {
 			SetErrorCode(YAIK_INIT_FAIL);
 			return NULL;
 		}
 	} else {
-		SetErrorCode(YAIK_INIT_FAIL);
-		return NULL;
+		SetErrorCode(YAIK_INVALID_CONTEXT_COUNT);
+		return 0;
 	}
 }
 
+// -----------------------------------------------------------------------------------------------
+//		YAIK_AssignLUT
+// -----------------------------------------------------------------------------------------------
+
+void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompressedLength) {
+	if (lib) {
+		// First, header the beginning of LUT file.
+		LUTHeader*	pHeader		= (LUTHeader*)lutDataCompressed;
+		u8*			stream		= (u8*)&pHeader[1];
+		u32			streamSize	= lutDataCompressedLength - sizeof(LUTHeader);
+		YAIK_Library* pLib		= (YAIK_Library*)lib;
+
+		// Value in file is u8
+		u32			expectedSize= (pHeader->entryCount+1) * (3*(64+32+16+8));
+		if (expectedSize != streamSize) {
+			SetErrorCode(YAIK_INVALID_LUT);
+			return;
+		}
+		
+		// Actually, for SECURITY REASON, we will allocate the WHOLE possible adressable space
+		// from any stream. It will guarantee that no buffer overflow is possible on that side.
+		// We also add 256x3 byte to make sure that NO INDEX STREAM PATCHED with malicious or corrupted data don't read outside of the space.
+		//
+		u8* memory = AllocateMem(&gLibrary.libraryAllocator, (((64+32+16+8)*3) * 256 * 64) + (256*3)); // Fully adressible space is NOT 48 pattern but 64.
+
+		if (memory) {
+			u8* pFill = memory;
+
+			u8 nIdx6[64];
+			u8 nIdx5[32];
+			u8 nIdx4[16];
+			u8 nIdx3[8];
+
+			u8 rIdx6[64];
+			u8 rIdx5[32];
+			u8 rIdx4[16];
+			u8 rIdx3[8];
+
+			for (int n=0; n < 64; n++) { nIdx6[n] = n; rIdx6[n] = 63-n; }
+			for (int n=0; n < 32; n++) { nIdx5[n] = n; rIdx5[n] = 31-n; }
+			for (int n=0; n < 16; n++) { nIdx4[n] = n; rIdx4[n] = 15-n; }
+			for (int n=0; n <  8; n++) { nIdx3[n] = n; rIdx3[n] =  7-n; }
+
+			for (int bit=3; bit<=6; bit++) {
+				u8* nTbl;
+				u8* rTbl;
+
+				pLib->LUT3D_BitFormat[bit-3] = pFill;
+
+				switch (bit) {
+				case 3: nTbl = nIdx3; rTbl = rIdx3; break;
+				case 4: nTbl = nIdx4; rTbl = rIdx4; break;
+				case 5: nTbl = nIdx5; rTbl = rIdx5; break;
+				case 6: nTbl = nIdx6; rTbl = rIdx6; break;
+				DEFAULT_UNREACHABLE;
+				}
+
+				for (int e=0; e <= pHeader->entryCount; e++) {
+					u8* originalX = &stream   [0];
+					u8* originalY = &stream   [1<<bit];
+					u8* originalZ = &originalY[1<<bit];
+					for (int pat=0; pat < 48; pat++) {
+						u8* TblX;
+						u8* TblY;
+						u8* TblZ;
+						u8* nX;
+						u8* nY;
+						u8* nZ;
+
+						switch (pat>>3) {
+						case 0: // Do nothing. 
+							TblX = originalX;
+							TblY = originalY;
+							TblZ = originalZ;
+							break;
+						case 1: // X[ZY] 
+							TblX = originalX;
+							TblY = originalZ;
+							TblZ = originalY;
+							break;
+						case 2: // [YX]Z
+							TblX = originalY;
+							TblY = originalX;
+							TblZ = originalZ;
+							break;
+						case 3: // YZX
+							TblX = originalY;
+							TblY = originalZ;
+							TblZ = originalX;
+							break;
+						case 4: // ZXY
+							TblX = originalZ;
+							TblY = originalX;
+							TblZ = originalY;
+							break;
+						case 5: // ZYX
+							TblX = originalZ;
+							TblY = originalY;
+							TblZ = originalX;
+							break;
+						DEFAULT_UNREACHABLE;
+						}
+
+						switch (pat & 0x7) {
+						case  0: nX = nTbl; nY = nTbl; nZ = nTbl; break;
+						case  1: nX = rTbl; nY = nTbl; nZ = nTbl; break;
+						case  2: nX = nTbl; nY = rTbl; nZ = nTbl; break;
+						case  3: nX = rTbl; nY = rTbl; nZ = nTbl; break;
+						case  4: nX = nTbl; nY = nTbl; nZ = rTbl; break;
+						case  5: nX = rTbl; nY = nTbl; nZ = rTbl; break;
+						case  6: nX = nTbl; nY = rTbl; nZ = rTbl; break;
+						case  7: nX = rTbl; nY = rTbl; nZ = rTbl; break;
+						DEFAULT_UNREACHABLE;
+						}
+
+						for (int idx=0; idx < (1<<bit); idx++) {
+							// 3 Value
+							*pFill++ = TblX[nX[idx]];
+							*pFill++ = TblY[nY[idx]];
+							*pFill++ = TblZ[nZ[idx]];
+						}
+					}
+
+					pFill  += 16*(3*(1<<bit));
+					stream += ((1<<bit)*3); // +24,+48,+96,+192
+				}
+			}
+		} else {
+			SetErrorCode(YAIK_MALLOC_FAIL);
+		}
+	} else {
+		SetErrorCode(YAIK_INVALID_LIBRARYCTX);
+	}
+}
+
+// -----------------------------------------------------------------------------------------------
+//		YAIK_Release
+// -----------------------------------------------------------------------------------------------
 void			YAIK_Release		(YAIK_LIB lib) {
 	if (lib) {
-		// !!! DONT : delete[] gLibrary.instances; --> User allocated buffer passed to the API !!!
-		// Free your own stuff, but there should be no need.
+		YAIK_Library* pLib = (YAIK_Library*)lib;
+		FreeMem(&pLib->libraryAllocator,pLib->instances);
 	} else {
-		gErrorCode = YAIK_RELEASE_EMPTY_LIBRARY;
+		SetErrorCode(YAIK_RELEASE_EMPTY_LIBRARY);
 	}
 }
 
+// -----------------------------------------------------------------------------------------------
+//		YAIK_DecodeImagePre
+// -----------------------------------------------------------------------------------------------
 bool			YAIK_DecodeImagePre	(YAIK_LIB libMemory, void* sourceStreamAligned, u32 streamLength, YAIK_SDecodedImage* pFill) {
 	YAIK_SDecodedImage& fillSize = *pFill;
 
@@ -193,18 +361,9 @@ bool			YAIK_DecodeImagePre	(YAIK_LIB libMemory, void* sourceStreamAligned, u32 s
 	return false;
 }
 
-u8*  AllocateMem (YAIK_SMemAlloc* allocCtx, size_t size) {
-	u8* res = (u8*)allocCtx->customAlloc(allocCtx, size);
-	if (!res) {
-		SetErrorCode(YAIK_MALLOC_FAIL);
-	}
-	return res;
-}
-
-void FreeMem	 (YAIK_SMemAlloc* allocCtx, void*  ptr ) {
-	if (ptr) { allocCtx->customFree(allocCtx, ptr); }
-}
-
+// -----------------------------------------------------------------------------------------------
+//		YAIK_DecodeImage
+// -----------------------------------------------------------------------------------------------
 u8* DecompressData(YAIK_Instance* pCtx, u8* dataIn, u32 size, u32 expectedSize) {
 	u8* res = (u8*)AllocateMem(&pCtx->allocCtx,expectedSize);
 	if (res) {
@@ -216,14 +375,6 @@ u8* DecompressData(YAIK_Instance* pCtx, u8* dataIn, u32 size, u32 expectedSize) 
 		}
 	}
 	return res;
-}
-
-void kassert(bool validCond) {
-	if (!validCond) {
-		PRINTF("Error");
-		while (1) {
-		}
-	}
 }
 
 bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDecodedImage* context) {
@@ -525,12 +676,16 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				Tile3DParam t3dParam;
 
+				// [SECURITY] Any value decoded OK => Covered by LUT size. 
+				//            And any garbage value read inside LUT range is just color stuff -> No need for INDEX range check.
 				t3dParam.stream3Bit	= DecompressData(pCtx,stream3Bit,pHeader->compr3BitSize,pHeader->stream3BitCnt);
 				t3dParam.stream4Bit	= DecompressData(pCtx,stream4Bit,pHeader->compr4BitSize,pHeader->stream4BitCnt);
 				t3dParam.stream5Bit	= DecompressData(pCtx,stream5Bit,pHeader->compr5BitSize,pHeader->stream5BitCnt);
 				t3dParam.stream6Bit	= DecompressData(pCtx,stream6Bit,pHeader->compr6BitSize,pHeader->stream6BitCnt);
 
+				// [SECURITY] All possible range from tile value (mode, bit count, tile ID) are acceeding valid memory definition. -> No need for INDEX range check.
 				t3dParam.tileStream	= (u16*)DecompressData(pCtx,tileStream ,pHeader->comprTypeSize ,pHeader->streamTypeCnt*sizeof(u16));	// One tile is 2 byte.
+				// [SECURITY] Invalid color range will just generate wrong color for decoding in case stream is tampered. -> No need for check either.
 				t3dParam.colorStream= DecompressData(pCtx,colorStream,pHeader->comprColorSize,pHeader->streamColorCnt);				// Tile Count x 6
 
 				Tile3DParam t3dParamPtrDelete = t3dParam; // Copy Struct.
@@ -561,7 +716,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				t3dParam.currentMap	= DecompressData(pCtx,tmap16_8, pHeader->sizeT16_8MapCmp, pHeader->sizeT16_8Map);
 				if (t3dParam.currentMap) {
-					Tile3D_16x8(pCtx,pHeader,&t3dParam);
+					Tile3D_16x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 				} else {
 					goto error;
@@ -569,7 +724,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				t3dParam.currentMap	= DecompressData(pCtx,tmap8_16, pHeader->sizeT8_16MapCmp, pHeader->sizeT8_16Map);
 				if (t3dParam.currentMap) {
-					Tile3D_8x16(pCtx,pHeader,&t3dParam);
+					Tile3D_8x16(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 				} else {
 					goto error;
@@ -577,7 +732,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				t3dParam.currentMap	= DecompressData(pCtx,tmap8_8,  pHeader->sizeT8_8MapCmp,  pHeader->sizeT8_8Map );
 				if (t3dParam.currentMap) {
-					Tile3D_8x8(pCtx,pHeader,&t3dParam);
+					Tile3D_8x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 				} else {
 					goto error;
@@ -585,7 +740,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				t3dParam.currentMap	= DecompressData(pCtx,tmap8_4, pHeader->sizeT8_4MapCmp, pHeader->sizeT8_4Map);
 				if (t3dParam.currentMap) {
-					Tile3D_8x4(pCtx,pHeader,&t3dParam);
+					Tile3D_8x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 				} else {
 					goto error;
@@ -593,7 +748,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				t3dParam.currentMap	= DecompressData(pCtx,tmap4_8, pHeader->sizeT4_8MapCmp, pHeader->sizeT4_8Map);
 				if (t3dParam.currentMap) {
-					Tile3D_4x8(pCtx,pHeader,&t3dParam);
+					Tile3D_4x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 				} else {
 					goto error;
@@ -601,7 +756,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				t3dParam.currentMap	= DecompressData(pCtx,tmap4_4, pHeader->sizeT4_4MapCmp, pHeader->sizeT4_4Map);
 				if (t3dParam.currentMap) {
-					Tile3D_4x4(pCtx,pHeader,&t3dParam);
+					Tile3D_4x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 				} else {
 					goto error;
@@ -653,7 +808,9 @@ error:
 	allocCtx.customFree(&allocCtx,pCtx->mipMapMask		);
 	allocCtx.customFree(&allocCtx,pCtx->planeR			); // Contains R,G,B
 	allocCtx.customFree(&allocCtx,pCtx->tile4x4Mask		);
-
+	if (pCtx->decompCtx) {
+		ZSTD_freeCCtx((ZSTD_CCtx*)pCtx->decompCtx);
+	}
 	gLibrary.FreeInstance(pCtx);
 	return res;
 }

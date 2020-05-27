@@ -161,6 +161,16 @@ protected:
 
 	void AnalyzeColorCount(Image* input, int tileSize);
 
+	enum Mode {
+		ENCODE_3BIT = 0,
+		ENCODE_4BIT,
+		ENCODE_5BIT,
+		ENCODE_6BIT,
+		//
+//		ENCODE_2BIT, DISABLED => [Warning : file need 3 BIT and NOT 2 BIT ANYMORE to store info !!!!]
+		SKIP_TOO_LOSSY,
+	};
+
 	struct EvalCtx {
 		EvalCtx() {}
 		~EvalCtx() {}
@@ -244,6 +254,10 @@ protected:
 		int	  yFactor3Bit[8];
 		int	  zFactor3Bit[8]; // 3D Only
 		float tFactor3Bit[8];
+
+		void Save		(FILE* stream);
+		void Load		(FILE* stream);
+		u8*	 BinarySave	(u8* stream, u8 pattern, Mode mode);
 
 		/*
 		int	  xFactor2Bit[4];
@@ -400,16 +414,6 @@ protected:
 	EvalCtx	correlationPattern[256];
 	int     correlationPatternCount;
 	void Create2DCorrelationPatterns();
-
-	enum Mode {
-		ENCODE_3BIT = 0,
-		ENCODE_4BIT,
-		ENCODE_5BIT,
-		ENCODE_6BIT,
-		//
-//		ENCODE_2BIT, DISABLED => [Warning : file need 3 BIT and NOT 2 BIT ANYMORE to store info !!!!]
-		SKIP_TOO_LOSSY,
-	};
 
 
 	Mode computeValues2D(int flipMode, int px,int py, float* mapX, float* mapY, int pixCnt, BoundingBox bb, EvalCtx& ev, int& minSumErrDiff);

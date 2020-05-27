@@ -3,6 +3,13 @@
 
 #include "../include/YAIK_private.h"
 
+#ifndef DEFAULT_UNREACHABLE
+	// Just for Recent VC++ for now...
+	#define DEFAULT_UNREACHABLE		default: __assume(0);
+	// TODO : Clang, gcc : default: __builtin_unreachable();
+	// If does not support : #define DEFAULT_UNREACHABLE default: break;
+#endif
+
 // -----------------------------------------------------------------------------------------------------------------------------------------
 //	 Generic Functions for all modules.
 // -----------------------------------------------------------------------------------------------------------------------------------------
@@ -107,12 +114,12 @@ struct Tile3DParam {
 	u8* currentMap;
 };
 
-void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
-void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
-void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
-void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
-void Tile3D_4x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
-void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param);
+void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
+void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
+void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
+void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
+void Tile3D_4x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
+void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
 
 // -----------------------------------------------------------------------------------------------------------------------------------------
 //   Generic Math Bit Macro to make code a bit clearer

@@ -4198,6 +4198,12 @@ EncoderContext::Mode EncoderContext::computeValues2D(int mode, int px,int py, fl
 
 void swap3D(int mode, int& x,int& y,int& z) {
 	int tmp;
+	//
+	// [ !!!!! DO NOT MODIFY THIS CODE !!!!!]
+	//   WITHOUT MODIFYING swap3D AND swap3DTable !!!!
+	//   WITHOUT MODIFYING THE DECODER CLIENT !!!
+	//  ==> May be should refactor and have some common code ?
+	//
 	switch (mode) {
 	case 0: // Do nothing. 
 		break;
@@ -4232,6 +4238,149 @@ void swap3D(int mode, int& x,int& y,int& z) {
 	}
 }
 
+void swap3DTable(int mode, int** ppx,int** ppy,int** ppz) {
+	int* tmp;
+	switch (mode) {
+	case 0: // Do nothing. 
+		break;
+	case 1: // X[ZY] 
+		tmp = *ppz;
+		*ppz   = *ppy;
+		*ppy   = tmp;
+		break;
+	case 2: // [YX]Z
+		tmp = *ppx;
+		*ppx= *ppy;
+		*ppy= tmp;
+		break;
+	case 3: // YZX
+		tmp = *ppx;
+		*ppx= *ppy;
+		*ppy= *ppz;
+		*ppz= tmp;
+		break;
+	case 4: // ZXY
+		tmp = *ppy;
+		*ppy= *ppx;
+		*ppx= *ppz;
+		*ppz= tmp;
+		break;
+	case 5: // ZYX
+		tmp = *ppx;
+		*ppx= *ppz;
+		// Y Same.
+		*ppz= tmp;
+		break;
+	}
+}
+
+void EncoderContext::EvalCtx::Save(FILE* stream) {
+	fwrite(distanceField3D,1,sizeof(int)*64*64*64,stream);
+
+	fwrite(position6Bit3D,1,sizeof(int)*64*64*64,stream);
+	fwrite(position5Bit3D,1,sizeof(int)*64*64*64,stream);
+	fwrite(position4Bit3D,1,sizeof(int)*64*64*64,stream);
+	fwrite(position3Bit3D,1,sizeof(int)*64*64*64,stream);
+
+	fwrite(xFactor6Bit,1,sizeof(  int)*64,stream);
+	fwrite(yFactor6Bit,1,sizeof(  int)*64,stream);
+	fwrite(zFactor6Bit,1,sizeof(  int)*64,stream);
+	fwrite(tFactor6Bit,1,sizeof(float)*64,stream);
+
+	fwrite(xFactor5Bit,1,sizeof(  int)*32,stream);
+	fwrite(yFactor5Bit,1,sizeof(  int)*32,stream);
+	fwrite(zFactor5Bit,1,sizeof(  int)*32,stream);
+	fwrite(tFactor5Bit,1,sizeof(float)*32,stream);
+
+	fwrite(xFactor4Bit,1,sizeof(  int)*16,stream);
+	fwrite(yFactor4Bit,1,sizeof(  int)*16,stream);
+	fwrite(zFactor4Bit,1,sizeof(  int)*16,stream);
+	fwrite(tFactor4Bit,1,sizeof(float)*16,stream);
+
+	fwrite(xFactor3Bit,1,sizeof(  int)*8,stream);
+	fwrite(yFactor3Bit,1,sizeof(  int)*8,stream);
+	fwrite(zFactor3Bit,1,sizeof(  int)*8,stream);
+	fwrite(tFactor3Bit,1,sizeof(float)*8,stream);
+}
+
+void EncoderContext::EvalCtx::Load(FILE* stream) {
+	fread(distanceField3D,1,sizeof(int)*64*64*64,stream);
+
+	fread(position6Bit3D,1,sizeof(int)*64*64*64,stream);
+	fread(position5Bit3D,1,sizeof(int)*64*64*64,stream);
+	fread(position4Bit3D,1,sizeof(int)*64*64*64,stream);
+	fread(position3Bit3D,1,sizeof(int)*64*64*64,stream);
+
+	fread(xFactor6Bit,1,sizeof(int)*64,stream);
+	fread(yFactor6Bit,1,sizeof(int)*64,stream);
+	fread(zFactor6Bit,1,sizeof(int)*64,stream);
+	fread(tFactor6Bit,1,sizeof(float)*64,stream);
+
+	fread(xFactor5Bit,1,sizeof(int)*32,stream);
+	fread(yFactor5Bit,1,sizeof(int)*32,stream);
+	fread(zFactor5Bit,1,sizeof(int)*32,stream);
+	fread(tFactor5Bit,1,sizeof(float)*32,stream);
+
+	fread(xFactor4Bit,1,sizeof(int)*16,stream);
+	fread(yFactor4Bit,1,sizeof(int)*16,stream);
+	fread(zFactor4Bit,1,sizeof(int)*16,stream);
+	fread(tFactor4Bit,1,sizeof(float)*16,stream);
+
+	fread(xFactor3Bit,1,sizeof(int)*8,stream);
+	fread(yFactor3Bit,1,sizeof(int)*8,stream);
+	fread(zFactor3Bit,1,sizeof(int)*8,stream);
+	fread(tFactor3Bit,1,sizeof(float)*8,stream);
+}
+
+u8* EncoderContext::EvalCtx::BinarySave(u8* in, u8 pattern, EncoderContext::Mode modeBit) {
+	int length;
+	int* xtbl=NULL; int* ytbl=NULL; int* ztbl=NULL;
+
+	switch (modeBit) {
+	case ENCODE_3BIT: length =  8; xtbl = xFactor3Bit; ytbl = yFactor3Bit; ztbl = zFactor3Bit; break;
+	case ENCODE_4BIT: length = 16; xtbl = xFactor4Bit; ytbl = yFactor4Bit; ztbl = zFactor4Bit; break;
+	case ENCODE_5BIT: length = 32; xtbl = xFactor5Bit; ytbl = yFactor5Bit; ztbl = zFactor5Bit; break;
+	case ENCODE_6BIT: length = 64; xtbl = xFactor6Bit; ytbl = yFactor6Bit; ztbl = zFactor6Bit; break;
+	}
+
+	// Swap Axis.
+	int* uxtbl; int* uytbl; int* uztbl;
+
+//	for (int n=0; n < 48; n++) {
+		int swapMode = (pattern>>3);
+
+		// Swap the Axis
+		uxtbl = xtbl; uytbl = ytbl; uztbl = ztbl; 
+		swap3DTable(swapMode,&uxtbl,&uytbl,&uztbl);
+
+		//
+		// Trick : Save the factor with a resolution of 7 bit instead of 8 : we need 256 but does not fit in a byte.
+		// Can NOT use 255 either ? (fails multiplications later)
+		//
+
+		for (int m=0; m < length; m++) {
+			// Reverse the axis.
+			int idxx = (pattern & 1) ? ((length-1)-m) : m; 
+			u8 vx = uxtbl[idxx]>>1;
+			*in++ = vx;
+		}
+		for (int m=0; m < length; m++) {
+			// Reverse the axis.
+			int idxy = (pattern & 2) ? ((length-1)-m) : m; 
+			u8 vy = uytbl[idxy]>>1;
+			*in++ = vy;
+		}
+		for (int m=0; m < length; m++) {
+			// Reverse the axis.
+			int idxz = (pattern & 4) ? ((length-1)-m) : m; 
+			u8 vz = uztbl[idxz]>>1;
+			*in++ = vz;
+		}
+//	}
+
+	return in;
+}
+
 EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSizeY, u8* mask, int mode, Image* input, int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/) {
 	bool outP;
 	int mx,my,mz;
@@ -4257,202 +4406,214 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 
 	int streamIdx = 0;
 
-	for (int y=0; y < tileSizeY; y++) {
-		for (int x=0; x < tileSizeX; x++) {
-			int idxPix = x + y*tileSizeX;
+	// If tile is 16 pixel wide,
+	// we split it into 2 8x8 tile.
+	// Makes decoder a lot more efficient.
+	int tileXAxisCount = 1;
+	if (tileSizeX > 8) {
+		tileSizeX = 8;
+		tileXAxisCount = 2;
+	}
 
-			if (mask[idxPix]) { continue; }
+	for (int xa=0; xa < tileXAxisCount; xa++) {
+		for (int y=0; y < tileSizeY; y++) {
+			for (int x=0; x < tileSizeX; x++) {
+				int idxPix = x+ (xa<<3)+ y*(tileSizeX<<(tileXAxisCount-1)); // Always a 16 pixel wide if using 2x 8x8 tile wide.
 
-			int rgb[3]; input->GetPixel(px + x, py + y,rgb, outP);
 
-			rgb[0]>>=0;
-			rgb[1]>>=0;
-			rgb[2]>>=0;
+				if (mask[idxPix]) { continue; }
 
-			// Find coordinate in normalized box.
-			// ---------------------------------------------
-			// Normalize to
-			float relR = rgb[0] - bb.x0;
-			float relG = rgb[1] - bb.y0;
-			float relB = rgb[2] - bb.z0;
+				int rgb[3]; input->GetPixel(px + x + (xa<<3), py + y,rgb, outP);
 
-			kassert(relR >= 0.0f);
-			kassert(relG >= 0.0f);
-			kassert(relB >= 0.0f);
+				rgb[0]>>=0;
+				rgb[1]>>=0;
+				rgb[2]>>=0;
 
-			if (dx) { relR /= dx; }
-			if (dy) { relG /= dy; }
-			if (dz) { relB /= dz; }
+				// Find coordinate in normalized box.
+				// ---------------------------------------------
+				// Normalize to
+				float relR = rgb[0] - bb.x0;
+				float relG = rgb[1] - bb.y0;
+				float relB = rgb[2] - bb.z0;
 
-			relR *= 63.0f;
-			relG *= 63.0f;
-			relB *= 63.0f;
+				kassert(relR >= 0.0f);
+				kassert(relG >= 0.0f);
+				kassert(relB >= 0.0f);
 
-			kassert(relR < 64.0f);
-			kassert(relG < 64.0f);
-			kassert(relB < 64.0f);
+				if (dx) { relR /= dx; }
+				if (dy) { relG /= dy; }
+				if (dz) { relB /= dz; }
 
-			// Handle mode.
-			mx = (mode & 1) ? 63 - relR : relR;
-			my = (mode & 2) ? 63 - relG : relG;
-			mz = (mode & 4) ? 63 - relB : relB;
-			swap3D(mode>>3,mx,my,mz);
+				relR *= 63.0f;
+				relG *= 63.0f;
+				relB *= 63.0f;
 
-			// Lookup Map
-			int idx6Bit = ev.GetValue6Bit3D((int)mx,(int)my,(int)mz);
-			int idx5Bit = ev.GetValue5Bit3D((int)mx,(int)my,(int)mz);
-			int idx4Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
-			int idx3Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
-			int idx2Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
+				kassert(relR < 64.0f);
+				kassert(relG < 64.0f);
+				kassert(relB < 64.0f);
 
-			// Find Decompressed values for mapping (Verification without decoder)
-			// -------------------------------------------
+				// Handle mode.
+				mx = (mode & 1) ? 63 - relR : relR;
+				my = (mode & 2) ? 63 - relG : relG;
+				mz = (mode & 4) ? 63 - relB : relB;
+				swap3D(mode>>3,mx,my,mz);
 
-			// TODO : LUT Based on Rotation mode in decoder.
-			int xCoord6Bit = ev.xFactor6Bit[idx6Bit];
-			int yCoord6Bit = ev.yFactor6Bit[idx6Bit];
-			int zCoord6Bit = ev.zFactor6Bit[idx6Bit];
+				// Lookup Map
+				int idx6Bit = ev.GetValue6Bit3D((int)mx,(int)my,(int)mz);
+				int idx5Bit = ev.GetValue5Bit3D((int)mx,(int)my,(int)mz);
+				int idx4Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
+				int idx3Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
+				int idx2Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
 
-			if (mode & 1) { xCoord6Bit = 256 - xCoord6Bit; }
-			if (mode & 2) { yCoord6Bit = 256 - yCoord6Bit; }
-			if (mode & 4) { zCoord6Bit = 256 - zCoord6Bit; }
-			swap3D(mode>>3,xCoord6Bit,yCoord6Bit,zCoord6Bit);
+				// Find Decompressed values for mapping (Verification without decoder)
+				// -------------------------------------------
 
-			int xCoord5Bit = ev.xFactor5Bit[idx5Bit];
-			int yCoord5Bit = ev.yFactor5Bit[idx5Bit];
-			int zCoord5Bit = ev.zFactor5Bit[idx5Bit];
-			if (mode & 1) { xCoord5Bit = 256 - xCoord5Bit; }
-			if (mode & 2) { yCoord5Bit = 256 - yCoord5Bit; }
-			if (mode & 4) { zCoord5Bit = 256 - zCoord5Bit; }
-			swap3D(mode>>3,xCoord5Bit,yCoord5Bit,zCoord5Bit);
+				// TODO : LUT Based on Rotation mode in decoder.
+				int xCoord6Bit = ev.xFactor6Bit[idx6Bit];
+				int yCoord6Bit = ev.yFactor6Bit[idx6Bit];
+				int zCoord6Bit = ev.zFactor6Bit[idx6Bit];
 
-			int xCoord4Bit = ev.xFactor4Bit[idx4Bit];
-			int yCoord4Bit = ev.yFactor4Bit[idx4Bit];
-			int zCoord4Bit = ev.zFactor4Bit[idx4Bit];
-			if (mode & 1) { xCoord4Bit = 256 - xCoord4Bit; }
-			if (mode & 2) { yCoord4Bit = 256 - yCoord4Bit; }
-			if (mode & 4) { zCoord4Bit = 256 - zCoord4Bit; }
-			swap3D(mode>>3,xCoord4Bit,yCoord4Bit,zCoord4Bit);
+				if (mode & 1) { xCoord6Bit = 256 - xCoord6Bit; }
+				if (mode & 2) { yCoord6Bit = 256 - yCoord6Bit; }
+				if (mode & 4) { zCoord6Bit = 256 - zCoord6Bit; }
+				swap3D(mode>>3,xCoord6Bit,yCoord6Bit,zCoord6Bit);
 
-			int xCoord3Bit = ev.xFactor3Bit[idx3Bit];
-			int yCoord3Bit = ev.yFactor3Bit[idx3Bit];
-			int zCoord3Bit = ev.zFactor3Bit[idx3Bit];
-			if (mode & 1) { xCoord3Bit = 256 - xCoord3Bit; }
-			if (mode & 2) { yCoord3Bit = 256 - yCoord3Bit; }
-			if (mode & 4) { zCoord3Bit = 256 - zCoord3Bit; }
-			swap3D(mode>>3,xCoord3Bit,yCoord3Bit,zCoord3Bit);
+				int xCoord5Bit = ev.xFactor5Bit[idx5Bit];
+				int yCoord5Bit = ev.yFactor5Bit[idx5Bit];
+				int zCoord5Bit = ev.zFactor5Bit[idx5Bit];
+				if (mode & 1) { xCoord5Bit = 256 - xCoord5Bit; }
+				if (mode & 2) { yCoord5Bit = 256 - yCoord5Bit; }
+				if (mode & 4) { zCoord5Bit = 256 - zCoord5Bit; }
+				swap3D(mode>>3,xCoord5Bit,yCoord5Bit,zCoord5Bit);
 
-			/*
-			int xCoord2Bit = ev.xFactor2Bit[idx2Bit];
-			int yCoord2Bit = ev.yFactor2Bit[idx2Bit];
-			int zCoord2Bit = ev.zFactor2Bit[idx2Bit];
-			if (mode & 1) { xCoord2Bit = 256 - xCoord2Bit; }
-			if (mode & 2) { yCoord2Bit = 256 - yCoord2Bit; }
-			if (mode & 4) { zCoord2Bit = 256 - zCoord2Bit; }
-			swap3D(mode>>3,xCoord2Bit,yCoord2Bit,zCoord2Bit);
-			*/
+				int xCoord4Bit = ev.xFactor4Bit[idx4Bit];
+				int yCoord4Bit = ev.yFactor4Bit[idx4Bit];
+				int zCoord4Bit = ev.zFactor4Bit[idx4Bit];
+				if (mode & 1) { xCoord4Bit = 256 - xCoord4Bit; }
+				if (mode & 2) { yCoord4Bit = 256 - yCoord4Bit; }
+				if (mode & 4) { zCoord4Bit = 256 - zCoord4Bit; }
+				swap3D(mode>>3,xCoord4Bit,yCoord4Bit,zCoord4Bit);
 
-			int r6Bit     = bb.x0 + (xCoord6Bit*(bb.x1-bb.x0))/256; 
-			int g6Bit     = bb.y0 + (yCoord6Bit*(bb.y1-bb.y0))/256;
-			int b6Bit     = bb.z0 + (zCoord6Bit*(bb.z1-bb.z0))/256;
+				int xCoord3Bit = ev.xFactor3Bit[idx3Bit];
+				int yCoord3Bit = ev.yFactor3Bit[idx3Bit];
+				int zCoord3Bit = ev.zFactor3Bit[idx3Bit];
+				if (mode & 1) { xCoord3Bit = 256 - xCoord3Bit; }
+				if (mode & 2) { yCoord3Bit = 256 - yCoord3Bit; }
+				if (mode & 4) { zCoord3Bit = 256 - zCoord3Bit; }
+				swap3D(mode>>3,xCoord3Bit,yCoord3Bit,zCoord3Bit);
 
-			int r5Bit     = bb.x0 + (xCoord5Bit*(bb.x1-bb.x0))/256; 
-			int g5Bit     = bb.y0 + (yCoord5Bit*(bb.y1-bb.y0))/256;
-			int b5Bit     = bb.z0 + (zCoord5Bit*(bb.z1-bb.z0))/256;
+				/*
+				int xCoord2Bit = ev.xFactor2Bit[idx2Bit];
+				int yCoord2Bit = ev.yFactor2Bit[idx2Bit];
+				int zCoord2Bit = ev.zFactor2Bit[idx2Bit];
+				if (mode & 1) { xCoord2Bit = 256 - xCoord2Bit; }
+				if (mode & 2) { yCoord2Bit = 256 - yCoord2Bit; }
+				if (mode & 4) { zCoord2Bit = 256 - zCoord2Bit; }
+				swap3D(mode>>3,xCoord2Bit,yCoord2Bit,zCoord2Bit);
+				*/
 
-			int r4Bit     = bb.x0 + (xCoord4Bit*(bb.x1-bb.x0))/256; 
-			int g4Bit     = bb.y0 + (yCoord4Bit*(bb.y1-bb.y0))/256;
-			int b4Bit     = bb.z0 + (zCoord4Bit*(bb.z1-bb.z0))/256;
+				int r6Bit     = bb.x0 + (xCoord6Bit*(bb.x1-bb.x0))/256; 
+				int g6Bit     = bb.y0 + (yCoord6Bit*(bb.y1-bb.y0))/256;
+				int b6Bit     = bb.z0 + (zCoord6Bit*(bb.z1-bb.z0))/256;
 
-			int r3Bit     = bb.x0 + (xCoord3Bit*(bb.x1-bb.x0))/256; 
-			int g3Bit     = bb.y0 + (yCoord3Bit*(bb.y1-bb.y0))/256;
-			int b3Bit     = bb.z0 + (zCoord3Bit*(bb.z1-bb.z0))/256;
+				int r5Bit     = bb.x0 + (xCoord5Bit*(bb.x1-bb.x0))/256; 
+				int g5Bit     = bb.y0 + (yCoord5Bit*(bb.y1-bb.y0))/256;
+				int b5Bit     = bb.z0 + (zCoord5Bit*(bb.z1-bb.z0))/256;
 
-			/*
-			int r2Bit     = bb.x0 + (xCoord2Bit*(bb.x1-bb.x0))/256; 
-			int g2Bit     = bb.y0 + (yCoord2Bit*(bb.y1-bb.y0))/256;
-			int b2Bit     = bb.z0 + (zCoord2Bit*(bb.z1-bb.z0))/256;
-			*/
+				int r4Bit     = bb.x0 + (xCoord4Bit*(bb.x1-bb.x0))/256; 
+				int g4Bit     = bb.y0 + (yCoord4Bit*(bb.y1-bb.y0))/256;
+				int b4Bit     = bb.z0 + (zCoord4Bit*(bb.z1-bb.z0))/256;
 
-			int diff6BitR	= abs(r6Bit - rgb[0]);
-			int diff5BitR	= abs(r5Bit - rgb[0]);
-			int diff4BitR	= abs(r4Bit - rgb[0]);
-			int diff3BitR	= abs(r3Bit - rgb[0]);
-//			int diff2BitR	= abs(r2Bit - rgb[0]);
+				int r3Bit     = bb.x0 + (xCoord3Bit*(bb.x1-bb.x0))/256; 
+				int g3Bit     = bb.y0 + (yCoord3Bit*(bb.y1-bb.y0))/256;
+				int b3Bit     = bb.z0 + (zCoord3Bit*(bb.z1-bb.z0))/256;
 
-			int diff6BitG	= abs(g6Bit - rgb[1]);
-			int diff5BitG	= abs(g5Bit - rgb[1]);
-			int diff4BitG	= abs(g4Bit - rgb[1]);
-			int diff3BitG	= abs(g3Bit - rgb[1]);
-//			int diff2BitG	= abs(g2Bit - rgb[1]);
+				/*
+				int r2Bit     = bb.x0 + (xCoord2Bit*(bb.x1-bb.x0))/256; 
+				int g2Bit     = bb.y0 + (yCoord2Bit*(bb.y1-bb.y0))/256;
+				int b2Bit     = bb.z0 + (zCoord2Bit*(bb.z1-bb.z0))/256;
+				*/
 
-			int diff6BitB	= abs(b6Bit - rgb[2]);
-			int diff5BitB	= abs(b5Bit - rgb[2]);
-			int diff4BitB	= abs(b4Bit - rgb[2]);
-			int diff3BitB	= abs(b3Bit - rgb[2]);
-//			int diff2BitB	= abs(b2Bit - rgb[2]);
+				int diff6BitR	= abs(r6Bit - rgb[0]);
+				int diff5BitR	= abs(r5Bit - rgb[0]);
+				int diff4BitR	= abs(r4Bit - rgb[0]);
+				int diff3BitR	= abs(r3Bit - rgb[0]);
+	//			int diff2BitR	= abs(r2Bit - rgb[0]);
 
-			assert(idxPix < 128);
+				int diff6BitG	= abs(g6Bit - rgb[1]);
+				int diff5BitG	= abs(g5Bit - rgb[1]);
+				int diff4BitG	= abs(g4Bit - rgb[1]);
+				int diff3BitG	= abs(g3Bit - rgb[1]);
+	//			int diff2BitG	= abs(g2Bit - rgb[1]);
 
-			int idxPixRGB = idxPix * 3;
-			// Export encoder result.
-			tile6B[idxPixRGB  ] = r6Bit;
-			tile6B[idxPixRGB+1] = g6Bit;
-			tile6B[idxPixRGB+2] = b6Bit;
+				int diff6BitB	= abs(b6Bit - rgb[2]);
+				int diff5BitB	= abs(b5Bit - rgb[2]);
+				int diff4BitB	= abs(b4Bit - rgb[2]);
+				int diff3BitB	= abs(b3Bit - rgb[2]);
+	//			int diff2BitB	= abs(b2Bit - rgb[2]);
 
-			tile5B[idxPixRGB  ] = r5Bit;
-			tile5B[idxPixRGB+1] = g5Bit;
-			tile5B[idxPixRGB+2] = b5Bit;
+				assert(idxPix < 128);
 
-			tile4B[idxPixRGB  ] = r4Bit;
-			tile4B[idxPixRGB+1] = g4Bit;
-			tile4B[idxPixRGB+2] = b4Bit;
+				int idxPixRGB = idxPix * 3;
+				// Export encoder result.
+				tile6B[idxPixRGB  ] = r6Bit;
+				tile6B[idxPixRGB+1] = g6Bit;
+				tile6B[idxPixRGB+2] = b6Bit;
 
-			tile3B[idxPixRGB  ] = r3Bit;
-			tile3B[idxPixRGB+1] = g3Bit;
-			tile3B[idxPixRGB+2] = b3Bit;
-			/*
-			tile2B[idxPixRGB  ] = r2Bit;
-			tile2B[idxPixRGB+1] = g2Bit;
-			tile2B[idxPixRGB+2] = b2Bit;
-			*/
-			#define max(a,b) (((a) > (b)) ? (a) : (b))
+				tile5B[idxPixRGB  ] = r5Bit;
+				tile5B[idxPixRGB+1] = g5Bit;
+				tile5B[idxPixRGB+2] = b5Bit;
 
-			int lDiff6Bit	= max(max(diff6BitR,diff6BitG),diff6BitB);
-			int lDiff5Bit	= max(max(diff5BitR,diff5BitG),diff5BitB);
-			int lDiff4Bit	= max(max(diff4BitR,diff4BitG),diff4BitB);
-			int lDiff3Bit	= max(max(diff3BitR,diff3BitG),diff3BitB);
-//			int lDiff2Bit	= max(max(diff2BitR,diff2BitG),diff2BitB);
+				tile4B[idxPixRGB  ] = r4Bit;
+				tile4B[idxPixRGB+1] = g4Bit;
+				tile4B[idxPixRGB+2] = b4Bit;
 
-			#undef max
+				tile3B[idxPixRGB  ] = r3Bit;
+				tile3B[idxPixRGB+1] = g3Bit;
+				tile3B[idxPixRGB+2] = b3Bit;
+				/*
+				tile2B[idxPixRGB  ] = r2Bit;
+				tile2B[idxPixRGB+1] = g2Bit;
+				tile2B[idxPixRGB+2] = b2Bit;
+				*/
+				#define max(a,b) (((a) > (b)) ? (a) : (b))
 
-			absErr6Bit += lDiff6Bit;
-			absErr5Bit += lDiff5Bit;
-			absErr4Bit += lDiff4Bit;
-			absErr3Bit += lDiff3Bit;
-//			absErr2Bit += lDiff2Bit;
+				int lDiff6Bit	= max(max(diff6BitR,diff6BitG),diff6BitB);
+				int lDiff5Bit	= max(max(diff5BitR,diff5BitG),diff5BitB);
+				int lDiff4Bit	= max(max(diff4BitR,diff4BitG),diff4BitB);
+				int lDiff3Bit	= max(max(diff3BitR,diff3BitG),diff3BitB);
+	//			int lDiff2Bit	= max(max(diff2BitR,diff2BitG),diff2BitB);
 
-			//
-			// Per pixel different is max > 4, after that, start to notice artifacts...
-			//                        max > 5 or 6 can be tolerated AT the condition that we measure the COMPLETE DIFFERENCE OF THE TILE and avoid if too much change.
-			// For now, allow 'some artifact' but limit is 5. NO MORE !!!!
-			//
-			// DIFF is over the range... Be sure you are on a 0..255 or 0..127 range.
-			//
-			if (lDiff6Bit > 5) { reject6Bit = true; }
-			if (lDiff5Bit > 5) { reject5Bit = true; }
-			if (lDiff4Bit > 7) { reject4Bit = true; }
-			if (lDiff3Bit > 7) { reject3Bit = true; }
-//			if (lDiff2Bit > 7) { reject2Bit = true; }
+				#undef max
 
-			ev.value6Bit[streamIdx] = idx6Bit;
-			ev.value5Bit[streamIdx] = idx5Bit;
-			ev.value4Bit[streamIdx] = idx4Bit;
-			ev.value3Bit[streamIdx] = idx3Bit;
-//			ev.value2Bit[streamIdx] = idx2Bit;
-			streamIdx++;
+				absErr6Bit += lDiff6Bit;
+				absErr5Bit += lDiff5Bit;
+				absErr4Bit += lDiff4Bit;
+				absErr3Bit += lDiff3Bit;
+	//			absErr2Bit += lDiff2Bit;
 
-//			printf("Co[%i] -> %i, %i, %i   Cg[%i] -> %i, %i, %i\n",CoV,Co5Bit,Co4Bit,Co3Bit,CgV,Cg5Bit,Cg4Bit,Cg3Bit);
+				//
+				// Per pixel different is max > 4, after that, start to notice artifacts...
+				//                        max > 5 or 6 can be tolerated AT the condition that we measure the COMPLETE DIFFERENCE OF THE TILE and avoid if too much change.
+				// For now, allow 'some artifact' but limit is 5. NO MORE !!!!
+				//
+				// DIFF is over the range... Be sure you are on a 0..255 or 0..127 range.
+				//
+				if (lDiff6Bit > 5) { reject6Bit = true; }
+				if (lDiff5Bit > 5) { reject5Bit = true; }
+				if (lDiff4Bit > 7) { reject4Bit = true; }
+				if (lDiff3Bit > 7) { reject3Bit = true; }
+	//			if (lDiff2Bit > 7) { reject2Bit = true; }
+
+				ev.value6Bit[streamIdx] = idx6Bit;
+				ev.value5Bit[streamIdx] = idx5Bit;
+				ev.value4Bit[streamIdx] = idx4Bit;
+				ev.value3Bit[streamIdx] = idx3Bit;
+	//			ev.value2Bit[streamIdx] = idx2Bit;
+				streamIdx++;
+
+	//			printf("Co[%i] -> %i, %i, %i   Cg[%i] -> %i, %i, %i\n",CoV,Co5Bit,Co4Bit,Co3Bit,CgV,Cg5Bit,Cg4Bit,Cg3Bit);
+			}
 		}
 	}
 
@@ -4802,8 +4963,8 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 								}
 							}
 
-							corr3D_tileStreamTileType[streamTypeCnt++] = foundM48 | (bitMode<<6) | (foundE<<8); // Bit [0..5] : 48 3D Pattern, Bit [6..7] : 3/4/5/6 Bit Tile, Bit [8..15] : 256 Pattern Max.
-						
+							corr3D_tileStreamTileType[streamTypeCnt++] = foundM48 | (bitMode<<(6+8)) | (foundE<<6); // Bit [0..5] : 48 3D Pattern, Bit [6..13] : 256 Pattern, Bit [14..15] : 3/4/5/6 Bit Tile.
+							
 							switch (bitMode) {
 //							case EncoderContext::ENCODE_2BIT:
 //								memcpy(&corr3D_stream2Bit[stream2BitCnt],evMin->value2Bit,pixelsInTile);
@@ -5249,6 +5410,33 @@ void EncoderContext::RegisterAndCreate3DLut() {
 	PatternMultiCol1[4].Set( 0.0f, 0.0f, 9.5f,  2.0f,  5.0f,34.0f); // Right->Special point.
 	correlationPattern[correlationPatternCount++].Set3D(350.0f, PatternMultiCol1, 5, 0,255,0 );
 
+	LUTHeader hd;
+	hd.lutH[0] = 'L'; hd.lutH[1] = 'U'; hd.lutH[2] = 'L'; hd.lutH[3] = '0'; // Compressed or uncompressed.
+	hd.version				= 0;
+	hd.entryCount			= correlationPatternCount-1;
+	hd.padding_extension[0] = 0;
+	hd.padding_extension[0] = 1;
+
+	// Single base pattern per save.
+	u32 perPattern			= ((64+32+16+8)*3);
+	u32 uncmpSize			= perPattern * correlationPatternCount;
+	u8* stream				= new u8[uncmpSize];
+	u8* streamFill			= stream;
+
+	// 3 bit, 4 bit, 5 bit, 6 bit
+	for (int n=0; n < 4; n++) {
+		for (int m=0; m < correlationPatternCount;m++) {
+			u8* next = correlationPattern[m].BinarySave(streamFill,0,(EncoderContext::Mode)n);
+			streamFill = next;
+		}
+	}
+
+	FILE* fLutO = fopen("LutFile.lut","wb");
+	fwrite(&hd,sizeof(LUTHeader),1,fLutO);
+	fwrite(stream,uncmpSize,1,fLutO);
+	fclose(fLutO);
+
+	delete[] stream;
 }
 
 void EncoderContext::convert(const char* outputFile) {

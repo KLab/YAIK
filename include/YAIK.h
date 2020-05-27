@@ -36,19 +36,34 @@ typedef void*	YAIK_INSTANCE;
 
 // [Forward Declaration]
 struct YAIK_SDecodedImage;
+struct YAIK_SMemAlloc;
 
 // ###################################################################################################################
 //  APIs (NOT multithread safe)
 // ###################################################################################################################
 
-/* 	Get the memory amount needed for the library itself, use return value to allocate memory.
-	The library does NOT use any memory allocation.																	*/
-u32				YAIK_GetLibraryMemoryAmount	(u8						maxDecodeThreadContext);
+/*	Initialize the library.
+	If you plan to use multiple threads to decode images, setup the maximum amount of threads you plan to use.
+	It will limit the number of call you can make to YAIK_DecodeImagePer in parallel.
 
-/*	Pass context to initialize the library. (Allow user to put his own info into the library context)
-	Call only once !																								*/
-YAIK_LIB		YAIK_Init					(void*					libMemory
-											,u8						maxDecodeThreadContext);
+	Optionnally, you can pass your own memory allocator. (NULL will provide default)
+	Note :	The memory allocator passed here is ONLY FOR THE LIBRARY ITSELF, NOT FOR IMAGE DECODING.
+			IMAGE DECODING ALLOCATION SCHEME IS SEPERATED.															*/
+YAIK_LIB		YAIK_Init					(u8						maxDecodeThreadContext
+											,YAIK_SMemAlloc*		libraryMemAllocator);
+
+/*	Now that the context is created, user must pass the tables needed for decoder.
+	Those tables are big enough and can updated with compressor version without changing the binary.
+	So API allows to setup LUT data seperatly from YAIK_Init and not internally.									
+	
+	Note : LUT Values are freed when YAIK_Release is called.
+	Note : Memory allocator can be set to NULL, will internally use default.
+	Note : If user passes a memory allocator, the context is copied. So YAIK_SMemAlloc* itself can be destroyed.
+		   But the content of the YAIK_SMemAlloc MUST STAY VALID for as long as the library is alive.
+*/
+void			YAIK_AssignLUT				(YAIK_LIB				lib
+											,u8*					lutData
+											,u32					lutDataLength);
 
 /*	Release the library																								*/
 void			YAIK_Release				(YAIK_LIB				lib);
@@ -85,6 +100,7 @@ bool			YAIK_DecodeImage			(void*					sourceStreamAligned
 enum YAIK_ERROR_CODE {
 	// PUBLIC ERRORS
 	YAIK_NO_ERROR = 0,						// [NO ERROR]
+	YAIK_INVALID_LIBRARYCTX,				// Invalid Library Context.
 	YAIK_MALLOC_FAIL,						// Impossible to allocate the needed memory.
 	YAIK_INVALID_CONTEXT_COUNT,				// Impossible to init library with 0 max context.
 	YAIK_INIT_FAIL,							// NULL pointer was passed for memory allocation.
@@ -97,6 +113,7 @@ enum YAIK_ERROR_CODE {
 	YAIK_DECIMG_BUFFERNOTSET,				// RGBA buffer from user is not set.
 	YAIK_INVALID_CONTEXT_MEMALLOCATOR,		// Invalid custom setup of the memory allocator.
 	YAIK_INVALID_DECOMPRESSION,				// Invalid stream that could not be decompressed by the compression library.
+	YAIK_INVALID_LUT,						// Problem decompressing the LUT file.
 
 	// INTERNAL ERRORS
 	YAIK_DECOMPRESSION_CREATE_FAIL,			
@@ -163,6 +180,7 @@ struct YAIK_SDecodedImage {
 	bool				hasAlpha1Bit;			// 3. More info for user if needed.
 	YAIK_INSTANCE		internalTag;			// [NEVER TOUCH, filled by YAIK_DecodeImagePre]
 };
+// -------------------------------------------------------------------------------------------------------------------
 
 
 
@@ -192,5 +210,6 @@ struct YAIK_SCustomDataSource {
 	// Distance in byte to the next line.
 	s32					strideA;
 };
+// -------------------------------------------------------------------------------------------------------------------
 
 #endif // YAIK_PUBLIC_HEADER
