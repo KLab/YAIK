@@ -37,24 +37,34 @@ double GetCounter()
     return double(li.QuadPart-CounterStart)/PCFreq;
 }
 
+u8* LoadFile(const char* name, u32& size) {
+	FILE* f = fopen(name, "rb");
+	fseek(f, 0, SEEK_END);
+	u32 fileLength = ftell(f);
+	fseek(f, 0, SEEK_SET);
+
+	u8* fileData = new u8[fileLength];
+	fread(fileData, fileLength, 1, f);
+	size = fileLength;
+	fclose(f);
+	return fileData;
+}
+
 int main()
 {
 	// INIT LIBRARY
-	u32 amount = YAIK_GetLibraryMemoryAmount(8);
-	if (amount != 0) {
-		u8* memoryContext = new u8[amount];
-		YAIK_LIB lib = YAIK_Init(memoryContext, 8);
+	YAIK_LIB lib = YAIK_Init(8,NULL);
+	if (lib) {
+		u32 LUTSize;
+		u8* LUTData = LoadFile("../../encoder/vc_prj/LutFile.lut",LUTSize);
+		StartCounter();
+		YAIK_AssignLUT(lib,LUTData,LUTSize);
+		printf("Assign LUT : Millisecond %f\n",(float)GetCounter());
+
 
 		YAIK_SDecodedImage imageInfo;
-		FILE* f = fopen("../../encoder/vc_prj/myTestFile.yaik", "rb");
-		fseek(f, 0, SEEK_END);
-		u32 fileLength = ftell(f);
-		fseek(f, 0, SEEK_SET);
-
-		u8* fileData = new u8[fileLength];
-		fread(fileData, fileLength, 1, f);
-		fclose(f);
-
+		u32 fileLength;
+		u8* fileData = LoadFile("../../encoder/vc_prj/myTestFile.yaik",fileLength);
 //		u8* pngFileData;
 //		u32 pngFileLength;
 		{
@@ -69,7 +79,7 @@ int main()
 		}
 
 		int n = 0;
-		for (int n=0; n < 25; n++) 
+		for (int n=0; n < 1; n++) 
 		{
 			printf("---%i----\n",n);
 
@@ -100,6 +110,5 @@ int main()
 
 		// END LIFE CYCLE OF LIBRARY.
 		YAIK_Release(lib);
-		delete[] memoryContext;
 	}
 }
