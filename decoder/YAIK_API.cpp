@@ -182,40 +182,18 @@ void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompresse
 		if (memory) {
 			u8* pFill = memory;
 
-			u8 nIdx6[64];
-			u8 nIdx5[32];
-			u8 nIdx4[16];
-			u8 nIdx3[8];
-
-			u8 rIdx6[64];
-			u8 rIdx5[32];
-			u8 rIdx4[16];
-			u8 rIdx3[8];
-
-			for (int n=0; n < 64; n++) { nIdx6[n] = n; rIdx6[n] = 63-n; }
-			for (int n=0; n < 32; n++) { nIdx5[n] = n; rIdx5[n] = 31-n; }
-			for (int n=0; n < 16; n++) { nIdx4[n] = n; rIdx4[n] = 15-n; }
-			for (int n=0; n <  8; n++) { nIdx3[n] = n; rIdx3[n] =  7-n; }
-
 			for (int bit=3; bit<=6; bit++) {
 				u8* nTbl;
 				u8* rTbl;
 
 				pLib->LUT3D_BitFormat[bit-3] = pFill;
 
-				switch (bit) {
-				case 3: nTbl = nIdx3; rTbl = rIdx3; break;
-				case 4: nTbl = nIdx4; rTbl = rIdx4; break;
-				case 5: nTbl = nIdx5; rTbl = rIdx5; break;
-				case 6: nTbl = nIdx6; rTbl = rIdx6; break;
-				DEFAULT_UNREACHABLE;
-				}
-
 				for (int e=0; e <= pHeader->entryCount; e++) {
 					u8* originalX = &stream   [0];
 					u8* originalY = &stream   [1<<bit];
 					u8* originalZ = &originalY[1<<bit];
-					for (int pat=0; pat < 48; pat++) {
+					
+					for (int pat=0; pat < 6; pat++) {
 						u8* TblX;
 						u8* TblY;
 						u8* TblZ;
@@ -223,7 +201,7 @@ void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompresse
 						u8* nY;
 						u8* nZ;
 
-						switch (pat>>3) {
+						switch (pat) {
 						case 0: // Do nothing. 
 							TblX = originalX;
 							TblY = originalY;
@@ -257,23 +235,61 @@ void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompresse
 						DEFAULT_UNREACHABLE;
 						}
 
-						switch (pat & 0x7) {
-						case  0: nX = nTbl; nY = nTbl; nZ = nTbl; break;
-						case  1: nX = rTbl; nY = nTbl; nZ = nTbl; break;
-						case  2: nX = nTbl; nY = rTbl; nZ = nTbl; break;
-						case  3: nX = rTbl; nY = rTbl; nZ = nTbl; break;
-						case  4: nX = nTbl; nY = nTbl; nZ = rTbl; break;
-						case  5: nX = rTbl; nY = nTbl; nZ = rTbl; break;
-						case  6: nX = nTbl; nY = rTbl; nZ = rTbl; break;
-						case  7: nX = rTbl; nY = rTbl; nZ = rTbl; break;
-						DEFAULT_UNREACHABLE;
-						}
-
+						// case  0: 
 						for (int idx=0; idx < (1<<bit); idx++) {
 							// 3 Value
-							*pFill++ = TblX[nX[idx]];
-							*pFill++ = TblY[nY[idx]];
-							*pFill++ = TblZ[nZ[idx]];
+							*pFill++ = TblX[idx];
+							*pFill++ = TblY[idx];
+							*pFill++ = TblZ[idx];
+						}
+						// case  1:
+						for (int idx=0; idx < (1<<bit); idx++) {
+							// 3 Value
+							*pFill++ = 128 - TblX[idx];
+							*pFill++ = TblY[idx];
+							*pFill++ = TblZ[idx];
+						}
+						// case  2:
+						for (int idx=0; idx < (1<<bit); idx++) {
+							// 3 Value
+							*pFill++ = TblX[idx];
+							*pFill++ = 128 - TblY[idx];
+							*pFill++ = TblZ[idx];
+						}
+						// case  3:
+						for (int idx=0; idx < (1<<bit); idx++) {
+							// 3 Value
+							*pFill++ = 128 - TblX[idx];
+							*pFill++ = 128 - TblY[idx];
+							*pFill++ = TblZ[idx];
+						}
+						// case  4:
+						for (int idx=0; idx < (1<<bit); idx++) {
+							// 3 Value
+							*pFill++ = TblX[idx];
+							*pFill++ = TblY[idx];
+							*pFill++ = 128 - TblZ[idx];
+						}
+						// case  5:
+						for (int idx=0; idx < (1<<bit); idx++) {
+							// 3 Value
+							*pFill++ = 128 - TblX[idx];
+							*pFill++ = TblY[idx];
+							*pFill++ = 128 - TblZ[idx];
+						}
+						// case  6:
+						for (int idx=0; idx < (1<<bit); idx++) {
+							// 3 Value
+							*pFill++ = TblX[idx];
+							*pFill++ = 128 - TblY[idx];
+							*pFill++ = 128 - TblZ[idx];
+						}
+						// case  7:
+						for (int idx=0; idx < (1<<bit); idx++) {
+							// 3 Value
+							*pFill++ = 128 - TblX[idx];
+							*pFill++ = 128 - TblY[idx];
+							*pFill++ = 128 - TblZ[idx];
 						}
 					}
 
@@ -722,6 +738,16 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					goto error;
 				}
 
+#ifdef YAIK_DEVEL
+	#if 1
+				{ BoundingBox bb;
+				bb.x=0; bb.y=0;
+				bb.w=512; bb.h=720;
+				DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+				Dump4x4TileMap("Tile4x4_Post16x8.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
+	#endif
+#endif
+
 				t3dParam.currentMap	= DecompressData(pCtx,tmap8_16, pHeader->sizeT8_16MapCmp, pHeader->sizeT8_16Map);
 				if (t3dParam.currentMap) {
 					Tile3D_8x16(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
@@ -729,6 +755,16 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				} else {
 					goto error;
 				}
+
+#ifdef YAIK_DEVEL
+	#if 1
+				{ BoundingBox bb;
+				bb.x=0; bb.y=0;
+				bb.w=512; bb.h=720;
+				DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+				Dump4x4TileMap("Tile4x4_Post8x16.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
+	#endif
+#endif
 
 				t3dParam.currentMap	= DecompressData(pCtx,tmap8_8,  pHeader->sizeT8_8MapCmp,  pHeader->sizeT8_8Map );
 				if (t3dParam.currentMap) {
@@ -738,6 +774,15 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					goto error;
 				}
 
+#ifdef YAIK_DEVEL
+	#if 1
+				{ BoundingBox bb;
+				bb.x=0; bb.y=0;
+				bb.w=512; bb.h=720;
+				DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+	#endif
+#endif
+
 				t3dParam.currentMap	= DecompressData(pCtx,tmap8_4, pHeader->sizeT8_4MapCmp, pHeader->sizeT8_4Map);
 				if (t3dParam.currentMap) {
 					Tile3D_8x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
@@ -745,6 +790,15 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				} else {
 					goto error;
 				}
+
+#ifdef YAIK_DEVEL
+	#if 1
+				{ BoundingBox bb;
+				bb.x=0; bb.y=0;
+				bb.w=512; bb.h=720;
+				DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+	#endif
+#endif
 
 				t3dParam.currentMap	= DecompressData(pCtx,tmap4_8, pHeader->sizeT4_8MapCmp, pHeader->sizeT4_8Map);
 				if (t3dParam.currentMap) {
@@ -754,6 +808,15 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					goto error;
 				}
 
+#ifdef YAIK_DEVEL
+	#if 1
+				{ BoundingBox bb;
+				bb.x=0; bb.y=0;
+				bb.w=512; bb.h=720;
+				DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+	#endif
+#endif
+
 				t3dParam.currentMap	= DecompressData(pCtx,tmap4_4, pHeader->sizeT4_4MapCmp, pHeader->sizeT4_4Map);
 				if (t3dParam.currentMap) {
 					Tile3D_4x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
@@ -761,6 +824,15 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				} else {
 					goto error;
 				}
+
+#ifdef YAIK_DEVEL
+	#if 1
+				{ BoundingBox bb;
+				bb.x=0; bb.y=0;
+				bb.w=512; bb.h=720;
+				DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+	#endif
+#endif
 
 				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream3Bit);
 				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream4Bit);

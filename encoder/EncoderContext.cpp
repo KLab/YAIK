@@ -18,6 +18,9 @@
 // assert()
 #include <cassert>
 
+
+#define FACTOR		(128)
+
 void kassert(bool cond) {
 	if (!cond) {
 		printf("ERR");
@@ -3721,8 +3724,8 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 	for (int n=0; n < 64; n++) {
 		LinearEqu2D& equ = equList2D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor6Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor6Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		xFactor6Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
+		yFactor6Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
 		tFactor6Bit[n] = pos;
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
@@ -3736,8 +3739,8 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 	for (int n=0; n < 32; n++) {
 		LinearEqu2D& equ = equList2D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor5Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor5Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		xFactor5Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
+		yFactor5Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
 		tFactor5Bit[n] = pos;
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
@@ -3751,8 +3754,8 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 	for (int n=0; n < 16; n++) {
 		LinearEqu2D& equ = equList2D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor4Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor4Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
+		xFactor4Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
+		yFactor4Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
 		tFactor4Bit[n] = pos;
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
@@ -3856,14 +3859,14 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 	for (int n=0; n < 64; n++) {
 		LinearEqu3D& equ = equList3D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor6Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor6Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		zFactor6Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+		xFactor6Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
+		yFactor6Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
+		zFactor6Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * FACTOR;
 		tFactor6Bit[n] = pos;
 
-		kassert((xFactor6Bit[n] >= 0) || (xFactor6Bit[n] <= 256));
-		kassert((yFactor6Bit[n] >= 0) || (yFactor6Bit[n] <= 256));
-		kassert((zFactor6Bit[n] >= 0) || (zFactor6Bit[n] <= 256));
+		kassert((xFactor6Bit[n] >= 0) || (xFactor6Bit[n] <= FACTOR));
+		kassert((yFactor6Bit[n] >= 0) || (yFactor6Bit[n] <= FACTOR));
+		kassert((zFactor6Bit[n] >= 0) || (zFactor6Bit[n] <= FACTOR));
 
 		pos += step;
 		if (pos > (equ.distancePartPosition + equ.distancePart)) {
@@ -3877,13 +3880,13 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 	for (int n=0; n < 32; n++) {
 		LinearEqu3D& equ = equList3D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor5Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor5Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		zFactor5Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+		xFactor5Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
+		yFactor5Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
+		zFactor5Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * FACTOR;
 
-		kassert((xFactor5Bit[n] >= 0) || (xFactor5Bit[n] <= 256));
-		kassert((yFactor5Bit[n] >= 0) || (yFactor5Bit[n] <= 256));
-		kassert((zFactor5Bit[n] >= 0) || (zFactor5Bit[n] <= 256));
+		kassert((xFactor5Bit[n] >= 0) || (xFactor5Bit[n] <= FACTOR));
+		kassert((yFactor5Bit[n] >= 0) || (yFactor5Bit[n] <= FACTOR));
+		kassert((zFactor5Bit[n] >= 0) || (zFactor5Bit[n] <= FACTOR));
 
 		tFactor5Bit[n] = pos;
 		pos += step;
@@ -3898,13 +3901,13 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 	for (int n=0; n < 16; n++) {
 		LinearEqu3D& equ = equList3D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor4Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor4Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		zFactor4Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+		xFactor4Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
+		yFactor4Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
+		zFactor4Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * FACTOR;
 
-		kassert((xFactor4Bit[n] >= 0) || (xFactor4Bit[n] <= 256));
-		kassert((yFactor4Bit[n] >= 0) || (yFactor4Bit[n] <= 256));
-		kassert((zFactor4Bit[n] >= 0) || (zFactor4Bit[n] <= 256));
+		kassert((xFactor4Bit[n] >= 0) || (xFactor4Bit[n] <= FACTOR));
+		kassert((yFactor4Bit[n] >= 0) || (yFactor4Bit[n] <= FACTOR));
+		kassert((zFactor4Bit[n] >= 0) || (zFactor4Bit[n] <= FACTOR));
 
 		tFactor4Bit[n] = pos;
 		pos += step;
@@ -3919,13 +3922,13 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 	for (int n=0; n < 8; n++) {
 		LinearEqu3D& equ = equList3D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor3Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor3Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		zFactor3Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+		xFactor3Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
+		yFactor3Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
+		zFactor3Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * FACTOR;
 
-		kassert((xFactor3Bit[n] >= 0) || (xFactor3Bit[n] <= 256));
-		kassert((yFactor3Bit[n] >= 0) || (yFactor3Bit[n] <= 256));
-		kassert((zFactor3Bit[n] >= 0) || (zFactor3Bit[n] <= 256));
+		kassert((xFactor3Bit[n] >= 0) || (xFactor3Bit[n] <= 128));
+		kassert((yFactor3Bit[n] >= 0) || (yFactor3Bit[n] <= 128));
+		kassert((zFactor3Bit[n] >= 0) || (zFactor3Bit[n] <= 128));
 
 		tFactor3Bit[n] = pos;
 		pos += step;
@@ -3941,13 +3944,13 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 	for (int n=0; n < 4; n++) {
 		LinearEqu3D& equ = equList3D[c];
 		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor2Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * 256.0f;
-		yFactor2Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * 256.0f;
-		zFactor2Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * 256.0f;
+		xFactor2Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
+		yFactor2Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
+		zFactor2Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * FACTOR;
 
-		kassert((xFactor2Bit[n] >= 0) || (xFactor2Bit[n] <= 256));
-		kassert((yFactor2Bit[n] >= 0) || (yFactor2Bit[n] <= 256));
-		kassert((zFactor2Bit[n] >= 0) || (zFactor2Bit[n] <= 256));
+		kassert((xFactor2Bit[n] >= 0) || (xFactor2Bit[n] <= FACTOR));
+		kassert((yFactor2Bit[n] >= 0) || (yFactor2Bit[n] <= FACTOR));
+		kassert((zFactor2Bit[n] >= 0) || (zFactor2Bit[n] <= FACTOR));
 
 		tFactor2Bit[n] = pos;
 		pos += step;
@@ -4119,8 +4122,8 @@ EncoderContext::Mode EncoderContext::computeValues2D(int mode, int px,int py, fl
 			int xCoord6Bit = ev.xFactor6Bit[idx6Bit];
 			int yCoord6Bit = ev.yFactor6Bit[idx6Bit];
 
-			if (mode & 1) { xCoord6Bit = 255 - xCoord6Bit; }
-			if (mode & 2) { yCoord6Bit = 255 - yCoord6Bit; }
+			if (mode & 1) { xCoord6Bit = FACTOR - xCoord6Bit; }
+			if (mode & 2) { yCoord6Bit = FACTOR - yCoord6Bit; }
 			if (mode & 4) {
 				int tmp = xCoord6Bit;
 				xCoord6Bit = yCoord6Bit;
@@ -4129,8 +4132,8 @@ EncoderContext::Mode EncoderContext::computeValues2D(int mode, int px,int py, fl
 
 			int xCoord5Bit = ev.xFactor5Bit[idx5Bit];
 			int yCoord5Bit = ev.yFactor5Bit[idx5Bit];
-			if (mode & 1) { xCoord5Bit = 255 - xCoord5Bit; }
-			if (mode & 2) { yCoord5Bit = 255 - yCoord5Bit; }
+			if (mode & 1) { xCoord5Bit = FACTOR - xCoord5Bit; }
+			if (mode & 2) { yCoord5Bit = FACTOR - yCoord5Bit; }
 			if (mode & 4) {
 				int tmp = xCoord5Bit;
 				xCoord5Bit = yCoord5Bit;
@@ -4139,22 +4142,22 @@ EncoderContext::Mode EncoderContext::computeValues2D(int mode, int px,int py, fl
 
 			int xCoord4Bit = ev.xFactor4Bit[idx4Bit];
 			int yCoord4Bit = ev.yFactor4Bit[idx4Bit];
-			if (mode & 1) { xCoord4Bit = 255 - xCoord4Bit; }
-			if (mode & 2) { yCoord4Bit = 255 - yCoord4Bit; }
+			if (mode & 1) { xCoord4Bit = FACTOR - xCoord4Bit; }
+			if (mode & 2) { yCoord4Bit = FACTOR - yCoord4Bit; }
 			if (mode & 4) {
 				int tmp = xCoord4Bit;
 				xCoord4Bit = yCoord4Bit;
 				yCoord4Bit = tmp;
 			}
 
-			int Co6Bit     = bb.x + (xCoord6Bit*(bb.w-bb.x))/256; 
-			int Cg6Bit     = bb.y + (yCoord6Bit*(bb.h-bb.y))/256;
+			int Co6Bit     = bb.x + (xCoord6Bit*(bb.w-bb.x))/FACTOR; 
+			int Cg6Bit     = bb.y + (yCoord6Bit*(bb.h-bb.y))/FACTOR;
 
-			int Co5Bit     = bb.x + (xCoord5Bit*(bb.w-bb.x))/256; 
-			int Cg5Bit     = bb.y + (yCoord5Bit*(bb.h-bb.y))/256;
+			int Co5Bit     = bb.x + (xCoord5Bit*(bb.w-bb.x))/FACTOR; 
+			int Cg5Bit     = bb.y + (yCoord5Bit*(bb.h-bb.y))/FACTOR;
 
-			int Co4Bit     = bb.x + (xCoord4Bit*(bb.w-bb.x))/256; 
-			int Cg4Bit     = bb.y + (yCoord4Bit*(bb.h-bb.y))/256;
+			int Co4Bit     = bb.x + (xCoord4Bit*(bb.w-bb.x))/FACTOR; 
+			int Cg4Bit     = bb.y + (yCoord4Bit*(bb.h-bb.y))/FACTOR;
 
 			int diff6BitCo	= abs(Co6Bit - CoV);
 			int diff5BitCo	= abs(Co5Bit - CoV);
@@ -4347,11 +4350,10 @@ u8* EncoderContext::EvalCtx::BinarySave(u8* in, u8 pattern, EncoderContext::Mode
 	int* uxtbl; int* uytbl; int* uztbl;
 
 //	for (int n=0; n < 48; n++) {
-		int swapMode = (pattern>>3);
 
 		// Swap the Axis
 		uxtbl = xtbl; uytbl = ytbl; uztbl = ztbl; 
-		swap3DTable(swapMode,&uxtbl,&uytbl,&uztbl);
+//		swap3DTable(swapMode,&uxtbl,&uytbl,&uztbl);
 
 		//
 		// Trick : Save the factor with a resolution of 7 bit instead of 8 : we need 256 but does not fit in a byte.
@@ -4359,22 +4361,15 @@ u8* EncoderContext::EvalCtx::BinarySave(u8* in, u8 pattern, EncoderContext::Mode
 		//
 
 		for (int m=0; m < length; m++) {
-			// Reverse the axis.
-			int idxx = (pattern & 1) ? ((length-1)-m) : m; 
-			u8 vx = uxtbl[idxx]>>1;
-			*in++ = vx;
+			*in++ = uxtbl[m];
 		}
+
 		for (int m=0; m < length; m++) {
-			// Reverse the axis.
-			int idxy = (pattern & 2) ? ((length-1)-m) : m; 
-			u8 vy = uytbl[idxy]>>1;
-			*in++ = vy;
+			*in++ = uytbl[m];
 		}
+
 		for (int m=0; m < length; m++) {
-			// Reverse the axis.
-			int idxz = (pattern & 4) ? ((length-1)-m) : m; 
-			u8 vz = uztbl[idxz]>>1;
-			*in++ = vz;
+			*in++ = uztbl[m];
 		}
 //	}
 
@@ -4425,10 +4420,6 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 
 				int rgb[3]; input->GetPixel(px + x + (xa<<3), py + y,rgb, outP);
 
-				rgb[0]>>=0;
-				rgb[1]>>=0;
-				rgb[2]>>=0;
-
 				// Find coordinate in normalized box.
 				// ---------------------------------------------
 				// Normalize to
@@ -4473,33 +4464,33 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 				int yCoord6Bit = ev.yFactor6Bit[idx6Bit];
 				int zCoord6Bit = ev.zFactor6Bit[idx6Bit];
 
-				if (mode & 1) { xCoord6Bit = 256 - xCoord6Bit; }
-				if (mode & 2) { yCoord6Bit = 256 - yCoord6Bit; }
-				if (mode & 4) { zCoord6Bit = 256 - zCoord6Bit; }
+				if (mode & 1) { xCoord6Bit = FACTOR - xCoord6Bit; }
+				if (mode & 2) { yCoord6Bit = FACTOR - yCoord6Bit; }
+				if (mode & 4) { zCoord6Bit = FACTOR - zCoord6Bit; }
 				swap3D(mode>>3,xCoord6Bit,yCoord6Bit,zCoord6Bit);
 
 				int xCoord5Bit = ev.xFactor5Bit[idx5Bit];
 				int yCoord5Bit = ev.yFactor5Bit[idx5Bit];
 				int zCoord5Bit = ev.zFactor5Bit[idx5Bit];
-				if (mode & 1) { xCoord5Bit = 256 - xCoord5Bit; }
-				if (mode & 2) { yCoord5Bit = 256 - yCoord5Bit; }
-				if (mode & 4) { zCoord5Bit = 256 - zCoord5Bit; }
+				if (mode & 1) { xCoord5Bit = FACTOR - xCoord5Bit; }
+				if (mode & 2) { yCoord5Bit = FACTOR - yCoord5Bit; }
+				if (mode & 4) { zCoord5Bit = FACTOR - zCoord5Bit; }
 				swap3D(mode>>3,xCoord5Bit,yCoord5Bit,zCoord5Bit);
 
 				int xCoord4Bit = ev.xFactor4Bit[idx4Bit];
 				int yCoord4Bit = ev.yFactor4Bit[idx4Bit];
 				int zCoord4Bit = ev.zFactor4Bit[idx4Bit];
-				if (mode & 1) { xCoord4Bit = 256 - xCoord4Bit; }
-				if (mode & 2) { yCoord4Bit = 256 - yCoord4Bit; }
-				if (mode & 4) { zCoord4Bit = 256 - zCoord4Bit; }
+				if (mode & 1) { xCoord4Bit = FACTOR - xCoord4Bit; }
+				if (mode & 2) { yCoord4Bit = FACTOR - yCoord4Bit; }
+				if (mode & 4) { zCoord4Bit = FACTOR - zCoord4Bit; }
 				swap3D(mode>>3,xCoord4Bit,yCoord4Bit,zCoord4Bit);
 
 				int xCoord3Bit = ev.xFactor3Bit[idx3Bit];
 				int yCoord3Bit = ev.yFactor3Bit[idx3Bit];
 				int zCoord3Bit = ev.zFactor3Bit[idx3Bit];
-				if (mode & 1) { xCoord3Bit = 256 - xCoord3Bit; }
-				if (mode & 2) { yCoord3Bit = 256 - yCoord3Bit; }
-				if (mode & 4) { zCoord3Bit = 256 - zCoord3Bit; }
+				if (mode & 1) { xCoord3Bit = FACTOR - xCoord3Bit; }
+				if (mode & 2) { yCoord3Bit = FACTOR - yCoord3Bit; }
+				if (mode & 4) { zCoord3Bit = FACTOR - zCoord3Bit; }
 				swap3D(mode>>3,xCoord3Bit,yCoord3Bit,zCoord3Bit);
 
 				/*
@@ -4512,26 +4503,26 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 				swap3D(mode>>3,xCoord2Bit,yCoord2Bit,zCoord2Bit);
 				*/
 
-				int r6Bit     = bb.x0 + (xCoord6Bit*(bb.x1-bb.x0))/256; 
-				int g6Bit     = bb.y0 + (yCoord6Bit*(bb.y1-bb.y0))/256;
-				int b6Bit     = bb.z0 + (zCoord6Bit*(bb.z1-bb.z0))/256;
+				int r6Bit     = bb.x0 + ((xCoord6Bit*(bb.x1-bb.x0))/FACTOR); 
+				int g6Bit     = bb.y0 + ((yCoord6Bit*(bb.y1-bb.y0))/FACTOR);
+				int b6Bit     = bb.z0 + ((zCoord6Bit*(bb.z1-bb.z0))/FACTOR);
 
-				int r5Bit     = bb.x0 + (xCoord5Bit*(bb.x1-bb.x0))/256; 
-				int g5Bit     = bb.y0 + (yCoord5Bit*(bb.y1-bb.y0))/256;
-				int b5Bit     = bb.z0 + (zCoord5Bit*(bb.z1-bb.z0))/256;
+				int r5Bit     = bb.x0 + ((xCoord5Bit*(bb.x1-bb.x0))/FACTOR);
+				int g5Bit     = bb.y0 + ((yCoord5Bit*(bb.y1-bb.y0))/FACTOR);
+				int b5Bit     = bb.z0 + ((zCoord5Bit*(bb.z1-bb.z0))/FACTOR);
 
-				int r4Bit     = bb.x0 + (xCoord4Bit*(bb.x1-bb.x0))/256; 
-				int g4Bit     = bb.y0 + (yCoord4Bit*(bb.y1-bb.y0))/256;
-				int b4Bit     = bb.z0 + (zCoord4Bit*(bb.z1-bb.z0))/256;
+				int r4Bit     = bb.x0 + ((xCoord4Bit*(bb.x1-bb.x0))/FACTOR); 
+				int g4Bit     = bb.y0 + ((yCoord4Bit*(bb.y1-bb.y0))/FACTOR);
+				int b4Bit     = bb.z0 + ((zCoord4Bit*(bb.z1-bb.z0))/FACTOR);
 
-				int r3Bit     = bb.x0 + (xCoord3Bit*(bb.x1-bb.x0))/256; 
-				int g3Bit     = bb.y0 + (yCoord3Bit*(bb.y1-bb.y0))/256;
-				int b3Bit     = bb.z0 + (zCoord3Bit*(bb.z1-bb.z0))/256;
+				int r3Bit     = bb.x0 + ((xCoord3Bit*(bb.x1-bb.x0))/FACTOR); 
+				int g3Bit     = bb.y0 + ((yCoord3Bit*(bb.y1-bb.y0))/FACTOR);
+				int b3Bit     = bb.z0 + ((zCoord3Bit*(bb.z1-bb.z0))/FACTOR);
 
 				/*
-				int r2Bit     = bb.x0 + (xCoord2Bit*(bb.x1-bb.x0))/256; 
-				int g2Bit     = bb.y0 + (yCoord2Bit*(bb.y1-bb.y0))/256;
-				int b2Bit     = bb.z0 + (zCoord2Bit*(bb.z1-bb.z0))/256;
+				int r2Bit     = bb.x0 + (xCoord2Bit*(bb.x1-bb.x0))/FACTOR; 
+				int g2Bit     = bb.y0 + (yCoord2Bit*(bb.y1-bb.y0))/FACTOR;
+				int b2Bit     = bb.z0 + (zCoord2Bit*(bb.z1-bb.z0))/FACTOR;
 				*/
 
 				int diff6BitR	= abs(r6Bit - rgb[0]);
@@ -4751,6 +4742,8 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 	int tileSizeX = 1<<tileShiftX;
 	int tileSizeY = 1<<tileShiftY;
 
+	printf("----- Tile Size %i,%i\n", tileSizeX, tileSizeY);
+
 	int bitCountMap = HeaderGradientTile::getBitmapSwizzleSize(tileShiftX,tileShiftY,imgW,imgH);
 
 	// Linear 2D order for big tile defined by swizzling.
@@ -4916,15 +4909,18 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 								diffSum  = diffSumL;
 								bestSize = fileCost;
 
+								/*
+								// Render With decoded data
 								for (int ty=0; ty < tileSizeY; ty++) {
 									for (int tx=0; tx < tileSizeX; tx++) {
 										int idx = (tx+(ty*tileSizeX));
 										if (maskTile[idx]) { src+=3; continue; }
 
-										output->SetPixel(tx+x,ty+y,src[0]<<0,src[1]<<0,src[2]<<0);
+										output->SetPixel(tx+x,ty+y,src[0],src[1],src[2]);
 										src += 3;
 									}
-								}
+								}*/
+
 							}
 						}
 
@@ -4934,14 +4930,21 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 						if (found) {
 							matchTile++;
 
+							printf("Tile[%i,%i] PixelCnt:%i [%i Bit,Mode:%i,Pattern:%i] (RGB:[%i,%i,%i]->[%i,%i,%i])\n", 
+								x,y,pixelsInTile,   
+								bitMode+3,foundM48,foundE, 
+									bb3.x0,bb3.y0,bb3.z0,
+									bb3.x1,bb3.y1,bb3.z1
+							);
+
 							// Color 1
-							corr3D_colorStream[streamColorCnt++] = bb3.x0>>0;
-							corr3D_colorStream[streamColorCnt++] = bb3.y0>>0;
-							corr3D_colorStream[streamColorCnt++] = bb3.z0>>0;
+							corr3D_colorStream[streamColorCnt++] = bb3.x0;
+							corr3D_colorStream[streamColorCnt++] = bb3.y0;
+							corr3D_colorStream[streamColorCnt++] = bb3.z0;
 							// Color 2
-							corr3D_colorStream[streamColorCnt++] = bb3.x1>>0;
-							corr3D_colorStream[streamColorCnt++] = bb3.y1>>0;
-							corr3D_colorStream[streamColorCnt++] = bb3.z1>>0;
+							corr3D_colorStream[streamColorCnt++] = bb3.x1;
+							corr3D_colorStream[streamColorCnt++] = bb3.y1;
+							corr3D_colorStream[streamColorCnt++] = bb3.z1;
 
 							// Bitmap stream...
 							if (tileSizeX == 8) {
@@ -4965,28 +4968,136 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 
 							corr3D_tileStreamTileType[streamTypeCnt++] = foundM48 | (bitMode<<(6+8)) | (foundE<<6); // Bit [0..5] : 48 3D Pattern, Bit [6..13] : 256 Pattern, Bit [14..15] : 3/4/5/6 Bit Tile.
 							
+#if 1
+							u8* bitSrc = NULL;
+							int* tblR;
+							int* tblG;
+							int* tblB;
+							int  maxIDX = 0;
+
 							switch (bitMode) {
 //							case EncoderContext::ENCODE_2BIT:
 //								memcpy(&corr3D_stream2Bit[stream2BitCnt],evMin->value2Bit,pixelsInTile);
 //								stream2BitCnt += pixelsInTile;
 								break;
 							case EncoderContext::ENCODE_3BIT:
+								bitSrc = evMin->value3Bit;
+								tblR   = &evMin->xFactor3Bit[0];
+								tblG   = &evMin->yFactor3Bit[0];
+								tblB   = &evMin->zFactor3Bit[0];
+								maxIDX = 7;
 								memcpy(&corr3D_stream3Bit[stream3BitCnt],evMin->value3Bit,pixelsInTile);
 								stream3BitCnt += pixelsInTile;
 								break;
 							case EncoderContext::ENCODE_4BIT:
+								bitSrc = evMin->value4Bit;
+								tblR   = &evMin->xFactor4Bit[0];
+								tblG   = &evMin->yFactor4Bit[0];
+								tblB   = &evMin->zFactor4Bit[0];
+								maxIDX = 15;
 								memcpy(&corr3D_stream4Bit[stream4BitCnt],evMin->value4Bit,pixelsInTile);
 								stream4BitCnt += pixelsInTile;
 								break;
 							case EncoderContext::ENCODE_5BIT:
+								bitSrc = evMin->value5Bit;
+								tblR   = &evMin->xFactor5Bit[0];
+								tblG   = &evMin->yFactor5Bit[0];
+								tblB   = &evMin->zFactor5Bit[0];
+								maxIDX = 31;
 								memcpy(&corr3D_stream5Bit[stream5BitCnt],evMin->value5Bit,pixelsInTile);
 								stream5BitCnt += pixelsInTile;
 								break;
 							case EncoderContext::ENCODE_6BIT:
+								bitSrc = evMin->value6Bit;
+								tblR   = &evMin->xFactor6Bit[0];
+								tblG   = &evMin->yFactor6Bit[0];
+								tblB   = &evMin->zFactor6Bit[0];
+								maxIDX = 63;
 								memcpy(&corr3D_stream6Bit[stream6BitCnt],evMin->value6Bit,pixelsInTile);
 								stream6BitCnt += pixelsInTile;
 								break;
+							default:
+								tblR = NULL;
+								tblG = NULL;
+								tblB = NULL;
 							}
+
+							// Render compressed block.
+							{
+								int dt[3];
+								dt[0] = bb3.x1 - bb3.x0;
+								dt[1] = bb3.y1 - bb3.y0;
+								dt[2] = bb3.z1 - bb3.z0;
+
+								//
+								// 
+								//
+								int lutXT[64];
+								int lutYT[64];
+								int lutZT[64];
+								for (int ssize = 0; ssize <= maxIDX; ssize++) {
+									lutXT[ssize] = tblR[ssize];
+									lutYT[ssize] = tblG[ssize];
+									lutZT[ssize] = tblB[ssize];
+								}
+
+								int* lutX = &lutXT[0];
+								int* lutY = &lutYT[0];
+								int* lutZ = &lutZT[0];
+
+								swap3DTable(foundM48>>3,&lutX,&lutY,&lutZ);
+
+								// Convert same format as Decoder to debug.
+								int tbl[64*3];
+								for (int ssize = 0; ssize <= maxIDX; ssize++) {
+									int rl   = (foundM48 & 1) ? (FACTOR - lutX[ssize]) : lutX[ssize];
+									int gl   = (foundM48 & 2) ? (FACTOR - lutY[ssize]) : lutY[ssize];
+									int bl   = (foundM48 & 4) ? (FACTOR - lutZ[ssize]) : lutZ[ssize];
+									tbl[ssize*3    ] = rl;
+									tbl[(ssize*3)+1] = gl;
+									tbl[(ssize*3)+2] = bl;
+									printf("[%i] => %i,%i,%i\n",ssize,rl,gl,bl);
+								}
+
+								u8* src = bitSrc;
+
+								int lSizeX = (tileSizeX > 8) ? 8 : tileSizeX;
+								int countX = (tileSizeX > 8) ? 2 : 1;
+								int vx = 0;
+								int pixelId = 0;
+								for (; vx < countX; vx++) {
+									for (int ty=0; ty < tileSizeY; ty++) {
+										for (int tx=0; tx < lSizeX; tx++) {
+											int idx = (tx + (vx*8) +(ty*tileSizeX));
+											if (maskTile[idx]) { continue; }
+
+											u8 idxTbl = (*src++) * 3;
+
+											/*
+											u8 idxR   = (foundM48 & 1) ? (maxIDX - idxTbl) : idxTbl;
+											u8 idxG   = (foundM48 & 2) ? (maxIDX - idxTbl) : idxTbl;
+											u8 idxB   = (foundM48 & 4) ? (maxIDX - idxTbl) : idxTbl;
+
+											u8 r = bb3.x0 + ((dt[0]*tblR[idxR]) >> 7);
+											u8 g = bb3.y0 + ((dt[1]*tblG[idxG]) >> 7);
+											u8 b = bb3.z0 + ((dt[2]*tblB[idxB]) >> 7);
+											*/
+
+											int r = bb3.x0 + ((dt[0]*tbl[idxTbl  ]) / FACTOR);
+											int g = bb3.y0 + ((dt[1]*tbl[idxTbl+1]) / FACTOR);
+											int b = bb3.z0 + ((dt[2]*tbl[idxTbl+2]) / FACTOR);
+
+											printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",tx+x+(vx*8),ty+y,pixelId,idxTbl,tbl[idxTbl  ],tbl[idxTbl+1],tbl[idxTbl+2]);
+											pixelId++;
+
+											output->SetPixel(tx+x+(vx*8),ty+y,r,g,b);
+										}
+									}
+								}
+							}
+
+							printf("end\n");
+#endif
 
 							//
 							// Remove Tile from usable tiles...
@@ -5384,8 +5495,8 @@ void EncoderContext::RegisterAndCreate3DLut() {
 
 	LinearEqu3D Pattern10[2];
 	{ float x=0.0f; float y=28.0f; float z=2.0f;
-	Pattern9[0].Set(2.0f  ,2.0f, 2.0f,x,y,z);
-	Pattern9[1].Set(x,y,z,62.0f,62.0f,62.0f); }
+	Pattern10[0].Set(2.0f  ,2.0f, 2.0f,x,y,z);
+	Pattern10[1].Set(x,y,z,62.0f,62.0f,62.0f); }
 	correlationPattern[correlationPatternCount++].Set3D(350.0f, Pattern10, 2, 0,255,0 );
 
 	LinearEqu3D PatternY1[3];
@@ -5532,7 +5643,7 @@ void EncoderContext::convert(const char* outputFile) {
 		// ---------------------------------------------------------------------------------------------------------------------------------------
 		// RGB 4x4 TILE
 		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,2,2); 
-//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
 //		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
 		/* PROTOTYPE TEST : 2x2 tile (irrealist, as it uses too much RGB pixel stream... just for debug/test purpose)
@@ -5555,23 +5666,29 @@ void EncoderContext::convert(const char* outputFile) {
 		mapSmoothTile->SavePNG("GradientMap.png",NULL);
 
 		StartCorrelationSearch3D();
+//		output->Clear();
 		Correlation3DSearch(original, output,4,3); // Test in RGB Space.
-		output->SavePNG("Post3DTile.png",NULL);
+		output->SavePNG("Post3DTile16_8.png",NULL);
 
+//		output->Clear();
 		Correlation3DSearch(original, output,3,4); // Test in RGB Space.
-		output->SavePNG("Post3DTile.png",NULL);
+		output->SavePNG("Post3DTile8_16.png",NULL);
 
+//		output->Clear();
 		Correlation3DSearch(original, output,3,3); // Test in RGB Space.
-		output->SavePNG("Post3DTile.png",NULL);
+		output->SavePNG("Post3DTile8_8.png",NULL);
 
+//		output->Clear();
 		Correlation3DSearch(original, output,3,2); // Test in RGB Space.
-		output->SavePNG("Post3DTile.png",NULL);
+		output->SavePNG("Post3DTile8_4.png",NULL);
 
+//		output->Clear();
 		Correlation3DSearch(original, output,2,3); // Test in RGB Space.
-		output->SavePNG("Post3DTile.png",NULL);
+		output->SavePNG("Post3DTile4_8.png",NULL);
 
+//		output->Clear();
 		Correlation3DSearch(original, output,2,2); // Test in RGB Space.
-		output->SavePNG("Post3DTile.png",NULL);
+		output->SavePNG("Post3DTile4_4.png",NULL);
 
 		EndCorrelationSearch3D(); // Header will be both 8 and 4 pixel tile stream...
 	//	Correlation3DSearch(YCoCgImg, output); // Test in YCoCb Space.
