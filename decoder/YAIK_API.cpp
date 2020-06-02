@@ -193,11 +193,15 @@ void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompresse
 					u8* originalY = &stream   [1<<bit];
 					u8* originalZ = &originalY[1<<bit];
 
+#ifdef YAIK_DEVEL
 					for (int n=0; n < (1<<bit); n++) {
 						if ((originalX[n] > 128) || (originalY[n] > 128) || (originalZ[n] > 128)) {
 							printf("ERROR");
+							while (true) {
+							}
 						}
 					}
+#endif
 					
 					for (int pat=0; pat < 6; pat++) {
 						u8* TblX;
