@@ -192,6 +192,12 @@ void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompresse
 					u8* originalX = &stream   [0];
 					u8* originalY = &stream   [1<<bit];
 					u8* originalZ = &originalY[1<<bit];
+
+					for (int n=0; n < (1<<bit); n++) {
+						if ((originalX[n] > 128) || (originalY[n] > 128) || (originalZ[n] > 128)) {
+							printf("ERROR");
+						}
+					}
 					
 					for (int pat=0; pat < 6; pat++) {
 						u8* TblX;
@@ -293,7 +299,9 @@ void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompresse
 						}
 					}
 
+					memset(pFill, 251, 16*(3*(1<<bit))); // Fill GARBAGE FOR NOW.
 					pFill  += 16*(3*(1<<bit));
+
 					stream += ((1<<bit)*3); // +24,+48,+96,+192
 				}
 			}

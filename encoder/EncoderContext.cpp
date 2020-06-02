@@ -3836,6 +3836,51 @@ void EncoderContext::EvalCtx::BuildDistanceField2D() {
 	printf("\n");
 }
 
+
+void BuildTable(LinearEqu3D* equList3D, int equCount, int* xFactor, int* yFactor, int* zFactor, float* tFactor, float totalDistance, int elementCount) {
+	float step = 1.0f/((float)elementCount-1.0f);
+	float pos  = 0.0f;
+	int   c    = 0;
+
+	LinearEqu3D* equ = &equList3D[c];
+	bool  notFound = false;
+	for (int n=0; n < elementCount; n++) {
+		float posLocal = ((pos - equ->distancePartPosition) / equ->distancePart) + 0.00001f;
+		if (notFound) {
+			xFactor[n] = (equ->x1 / 64.0f) * FACTOR;
+			yFactor[n] = (equ->y1 / 64.0f) * FACTOR;
+			zFactor[n] = (equ->z1 / 64.0f) * FACTOR;
+			tFactor[n] = 1.0f;
+		} else {
+			xFactor[n] = ((equ->x0 + ((equ->x1-equ->x0) * posLocal)) / 64.0f) * FACTOR;
+			yFactor[n] = ((equ->y0 + ((equ->y1-equ->y0) * posLocal)) / 64.0f) * FACTOR;
+			zFactor[n] = ((equ->z0 + ((equ->z1-equ->z0) * posLocal)) / 64.0f) * FACTOR;
+			tFactor[n] = pos;
+		}
+
+		kassert((xFactor[n] >= 0) && (xFactor[n] <= FACTOR));
+		kassert((yFactor[n] >= 0) && (yFactor[n] <= FACTOR));
+		kassert((zFactor[n] >= 0) && (zFactor[n] <= FACTOR));
+
+		pos += step;
+		while (pos > (equ->distancePartPosition + equ->distancePart)) {
+			c++;
+			if (c < equCount) {
+				equ = &equList3D[c];
+			} else {
+				// No more equations... End of curve.
+				// Use last segment (equ not modified)
+				// Force 
+				if (n < (elementCount-1)) {
+					notFound = true;
+					printf("problem to solve");
+				}
+				break;
+			}
+		}
+	}
+}
+
 void EncoderContext::EvalCtx::BuildDistanceField3D() {
 	float totalDistance = 0.0f;
 
@@ -3853,89 +3898,10 @@ void EncoderContext::EvalCtx::BuildDistanceField3D() {
 		currDistance += equ.pieceLength;
 	}
 
-	float step = 1.0f/63.0f;
-	float pos  = 0.0f;
-	int   c    = 0;
-	for (int n=0; n < 64; n++) {
-		LinearEqu3D& equ = equList3D[c];
-		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor6Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
-		yFactor6Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
-		zFactor6Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * FACTOR;
-		tFactor6Bit[n] = pos;
-
-		kassert((xFactor6Bit[n] >= 0) || (xFactor6Bit[n] <= FACTOR));
-		kassert((yFactor6Bit[n] >= 0) || (yFactor6Bit[n] <= FACTOR));
-		kassert((zFactor6Bit[n] >= 0) || (zFactor6Bit[n] <= FACTOR));
-
-		pos += step;
-		if (pos > (equ.distancePartPosition + equ.distancePart)) {
-			c++;
-		}
-	}
-
-	step = 1.0f/31.0f;
-	pos  = 0.0f;
-	c    = 0;
-	for (int n=0; n < 32; n++) {
-		LinearEqu3D& equ = equList3D[c];
-		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor5Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
-		yFactor5Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
-		zFactor5Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * FACTOR;
-
-		kassert((xFactor5Bit[n] >= 0) || (xFactor5Bit[n] <= FACTOR));
-		kassert((yFactor5Bit[n] >= 0) || (yFactor5Bit[n] <= FACTOR));
-		kassert((zFactor5Bit[n] >= 0) || (zFactor5Bit[n] <= FACTOR));
-
-		tFactor5Bit[n] = pos;
-		pos += step;
-		if (pos > (equ.distancePartPosition + equ.distancePart)) {
-			c++;
-		}
-	}
-
-	step = 1.0f/15.0f;
-	pos  = 0.0f;
-	c    = 0;
-	for (int n=0; n < 16; n++) {
-		LinearEqu3D& equ = equList3D[c];
-		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor4Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
-		yFactor4Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
-		zFactor4Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * FACTOR;
-
-		kassert((xFactor4Bit[n] >= 0) || (xFactor4Bit[n] <= FACTOR));
-		kassert((yFactor4Bit[n] >= 0) || (yFactor4Bit[n] <= FACTOR));
-		kassert((zFactor4Bit[n] >= 0) || (zFactor4Bit[n] <= FACTOR));
-
-		tFactor4Bit[n] = pos;
-		pos += step;
-		if (pos > (equ.distancePartPosition + equ.distancePart)) {
-			c++;
-		}
-	}
-
-	step = 1.0f/7.0f;
-	pos  = 0.0f;
-	c    = 0;
-	for (int n=0; n < 8; n++) {
-		LinearEqu3D& equ = equList3D[c];
-		float posLocal = ((pos - equ.distancePartPosition) / equ.distancePart) + 0.00001f;
-		xFactor3Bit[n] = ((equ.x0 + ((equ.x1-equ.x0) * posLocal)) / 64.0f) * FACTOR;
-		yFactor3Bit[n] = ((equ.y0 + ((equ.y1-equ.y0) * posLocal)) / 64.0f) * FACTOR;
-		zFactor3Bit[n] = ((equ.z0 + ((equ.z1-equ.z0) * posLocal)) / 64.0f) * FACTOR;
-
-		kassert((xFactor3Bit[n] >= 0) || (xFactor3Bit[n] <= 128));
-		kassert((yFactor3Bit[n] >= 0) || (yFactor3Bit[n] <= 128));
-		kassert((zFactor3Bit[n] >= 0) || (zFactor3Bit[n] <= 128));
-
-		tFactor3Bit[n] = pos;
-		pos += step;
-		if (pos > (equ.distancePartPosition + equ.distancePart)) {
-			c++;
-		}
-	}
+	BuildTable(equList3D, equCount, xFactor6Bit, yFactor6Bit, zFactor6Bit, tFactor6Bit, totalDistance, 64);
+	BuildTable(equList3D, equCount, xFactor5Bit, yFactor5Bit, zFactor5Bit, tFactor5Bit, totalDistance, 32);
+	BuildTable(equList3D, equCount, xFactor4Bit, yFactor4Bit, zFactor4Bit, tFactor4Bit, totalDistance, 16);
+	BuildTable(equList3D, equCount, xFactor3Bit, yFactor3Bit, zFactor3Bit, tFactor3Bit, totalDistance,  8);
 
 	/*
 	step = 1.0f/3.0f;
@@ -4361,14 +4327,23 @@ u8* EncoderContext::EvalCtx::BinarySave(u8* in, u8 pattern, EncoderContext::Mode
 		//
 
 		for (int m=0; m < length; m++) {
+			if (uxtbl[m] > 128) {
+				printf("ERROR\n");
+			}
 			*in++ = uxtbl[m];
 		}
 
 		for (int m=0; m < length; m++) {
+			if (uytbl[m] > 128) {
+				printf("ERROR\n");
+			}
 			*in++ = uytbl[m];
 		}
 
 		for (int m=0; m < length; m++) {
+			if (uztbl[m] > 128) {
+				printf("ERROR\n");
+			}
 			*in++ = uztbl[m];
 		}
 //	}
