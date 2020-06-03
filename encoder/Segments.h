@@ -107,6 +107,8 @@ float udBezier( glm::vec2 pos, glm::vec2 A, glm::vec2 B, glm::vec2 C );
 
 struct AbstractSegment {
 	float pieceLength;
+	float distancePartPosition;
+	float distancePart;
 
 	float Length() {
 		return pieceLength;
@@ -137,9 +139,6 @@ struct LinearEqu2D : public AbstractSegment {
 			printf("ALERT");
 		}
 	}
-
-	float distancePartPosition;
-	float distancePart;
 
 	float ComputeDistance2D(float x, float y, float& xClosest, float& yClosest, float& tLocal) {
 		float U;
@@ -176,19 +175,13 @@ struct LinearEqu2D : public AbstractSegment {
 		xClosest		= -99999.0f;
 		yClosest		= -99999.0f;
 		zClosest		= -99999.0f;
+		return 0.0f;
 	}
 };
 
-struct LinearEqu3D : public AbstractSegment {
-	float x0; // Included
-	float y0;
+struct LinearEqu3D : public LinearEqu2D {
 	float z0;
-	float x1; // Excluded, except last segment.
-	float y1; // Excluded
 	float z1;
-
-	float dx;
-	float dy;
 	float dz;
 
 	void Set(float x0, float y0, float z0, float x1, float y1, float z1) {

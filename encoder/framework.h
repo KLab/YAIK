@@ -95,6 +95,7 @@ public:
 	void	RemoveMask			(Plane* toRemove);
 	void	SetPixel			(int x, int y, int v) { pixels[x + y*w] = v; }
 
+	void	Clear				() { BoundingBox bb; bb.x = 0; bb.y = 0; bb.w = w; bb.h = h; Fill(bb,0); }
 	int		GetBoundingBoxNonZeros(BoundingBox& result);
 
 	enum MASK_OPERATOR {
@@ -167,6 +168,12 @@ public:
 	void	Compute4DHistogram	(int* histogramRGB, const BoundingBox& boundingBox, TPlane mask);
 
 	Plane*	ComputeOperatorMask	(int* values, MASK_OPERATOR op, bool allTrue, bool only3Plane);
+
+	void	Clear() {
+		for (int n=0; n < 4; n++) {
+			if (planes[n]) { planes[n]->Clear(); }
+		}
+	}
 
 	/* Return false if size are different from the image size. */
 	bool			ReplacePlane(int index, TPlane newPlane) {

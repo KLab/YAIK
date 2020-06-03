@@ -85,6 +85,12 @@ public:
 	void SaveAsYCoCg		(const char* optionnalFileName = NULL);
 	void Release			();
 
+	enum PlaneMode {
+		Mode_RG = 0,
+		Mode_GB = 1,
+		Mode_RB = 2
+	};
+
 protected:
 	int    fileOutSize;
 	Image* original;
@@ -150,9 +156,11 @@ protected:
 	int streamTypeCnt;
 
 	void RegisterAndCreate3DLut();
-	void StartCorrelationSearch3D();
-	void EndCorrelationSearch3D();
+	void RegisterAndCreate2DLut();
+	void StartCorrelationSearch(bool is3D);
+	void EndCorrelationSearch(bool is3D);
 	void Correlation3DSearch(Image* input, Image* output, int tileSizeX, int tileSizeY);
+	void Correlation2DSearch(PlaneMode planeMode,Image* input, Image* output, int tileSizeX, int tileSizeY);
 
 	int	DynamicTileEncode	(bool mode3BitOnly, Plane* plane, Plane* dst, bool isCo, bool isCg, bool isHalfX, bool isHalfY);	// Return bitcount.
 	int DynamicTileEncodeCoCg(Plane* source, Plane* Target, Plane* targetCode);
@@ -171,93 +179,35 @@ protected:
 		SKIP_TOO_LOSSY,
 	};
 
-	struct EvalCtx {
-		EvalCtx() {}
-		~EvalCtx() {}
+	struct EvalCtxBase {
+		EvalCtxBase() {}
+		~EvalCtxBase() {}
 
-		void Set2D(float acceptanceScore, LinearEqu2D* list, int countList, int r, int g, int b) {
-			equList2D= list;
-			equList3D= NULL;
-			equCount = countList;
-			color[0] = r;
-			color[1] = g;
-			color[2] = b;
-			acceptScore = acceptanceScore;
-			BuildDistanceField2D();
-		}
-
-		void Set3D(float acceptanceScore, LinearEqu3D* list, int countList, int r, int g, int b) {
-			equList2D= NULL;
-			equList3D= list;
-			equCount = countList;
-			color[0] = r;
-			color[1] = g;
-			color[2] = b;
-			acceptScore = acceptanceScore;
-			BuildDistanceField3D();
-		}
-
-		int   GetValue6Bit2D(int x, int y) { return position6Bit2D[x + y*64]; }
-		int   GetValue5Bit2D(int x, int y) { return position5Bit2D[x + y*64]; }
-		int   GetValue4Bit2D(int x, int y) { return position4Bit2D[x + y*64]; }
-
-		int   GetValue6Bit3D(int x, int y, int z) { return position6Bit3D[x + y*64 + (z<<12)]; }
-		int   GetValue5Bit3D(int x, int y, int z) { return position5Bit3D[x + y*64 + (z<<12)]; }
-		int   GetValue4Bit3D(int x, int y, int z) { return position4Bit3D[x + y*64 + (z<<12)]; }
-		int   GetValue3Bit3D(int x, int y, int z) { return position3Bit3D[x + y*64 + (z<<12)]; }
-//		int   GetValue2Bit3D(int x, int y, int z) { return position2Bit3D[x + y*64 + (z<<12)]; }
-
-		LinearEqu2D* equList2D;
-		LinearEqu3D* equList3D;
 		int			 equCount;
-
 		int   sampleCount;
 
-		// Evaluation result.
-		int   sumDistance2D[8];
-		int   distSamples[64][8];
-		int	  distanceField2D[64*64];
-
-		int   position6Bit2D[64*64];
-		int   position5Bit2D[64*64];
-		int   position4Bit2D[64*64];
-
-		//
-		// 3D
-		//
-		int   sumDistance3D[48];
-		int	  distanceField3D[64*64*64];
-
-		int   position6Bit3D[64*64*64];
-		int   position5Bit3D[64*64*64];
-		int   position4Bit3D[64*64*64];
-		int   position3Bit3D[64*64*64];
-//		int   position2Bit3D[64*64*64];
-
 		// Common 2D/3D
-		int	  xFactor6Bit[64];
-		int	  yFactor6Bit[64];
-		int	  zFactor6Bit[64]; // 3D Only
+		s16	  xFactor6Bit[64];
+		s16	  yFactor6Bit[64];
 		float tFactor6Bit[64];
 
-		int	  xFactor5Bit[32];
-		int	  yFactor5Bit[32];
-		int	  zFactor5Bit[32]; // 3D Only
+		s16	  xFactor5Bit[32];
+		s16	  yFactor5Bit[32];
 		float tFactor5Bit[32];
 
-		int	  xFactor4Bit[16];
-		int	  yFactor4Bit[16];
-		int	  zFactor4Bit[16]; // 3D Only
+		s16	  xFactor4Bit[16];
+		s16	  yFactor4Bit[16];
 		float tFactor4Bit[16];
 
-		int	  xFactor3Bit[8];
-		int	  yFactor3Bit[8];
-		int	  zFactor3Bit[8]; // 3D Only
+		s16	  xFactor3Bit[8];
+		s16	  yFactor3Bit[8];
 		float tFactor3Bit[8];
 
-		void Save		(FILE* stream);
-		void Load		(FILE* stream);
-		u8*	 BinarySave	(u8* stream, u8 pattern, Mode mode);
+		// 3D Only but made code easier, does not take much space anyway...
+		s16	  zFactor6Bit[64];
+		s16	  zFactor5Bit[32];
+		s16	  zFactor4Bit[16];
+		s16	  zFactor3Bit[8];
 
 		/*
 		int	  xFactor2Bit[4];
@@ -269,6 +219,43 @@ protected:
 		float acceptScore;
 		int   color[3];
 
+		u8 value6Bit[8*8*2];
+		u8 value5Bit[8*8*2];
+		u8 value4Bit[8*8*2];
+		u8 value3Bit[8*8*2];
+//		u8 value2Bit[8*8*2];
+
+		/*
+		void Save		(FILE* stream);
+		void Load		(FILE* stream);
+		*/
+	};
+
+	struct EvalCtx2D : EvalCtxBase {
+		void BuildTable2D(s16* xFactor, s16* yFactor, float* tFactor, float totalDistance, int elementCount);
+		void BuildDistanceField2D();
+
+		LinearEqu2D* equList2D;
+
+		// Evaluation result.
+		int   sumDistance2D[8];
+		int   distSamples[64][8];
+		int	  distanceField2D[64*64];
+
+		void Set2D(float acceptanceScore, LinearEqu2D* list, int countList, int r, int g, int b) {
+			equList2D= list;
+			equCount = countList;
+			color[0] = r;
+			color[1] = g;
+			color[2] = b;
+			acceptScore = acceptanceScore;
+			BuildDistanceField2D();
+		}
+
+		void Set2DPointCloud(float acceptanceScore, int* ptsXY, int ptsCount) {
+			// TODO
+		}
+
 		void EvaluateStart2D() {
 			for (int n=0; n < 8; n++) {
 				sumDistance2D[n] = 0;
@@ -276,12 +263,7 @@ protected:
 			sampleCount = 0;
 		}
 
-		void EvaluateStart3D() {
-			for (int n=0; n < 6*8; n++) {
-				sumDistance3D[n] = 0;
-			}
-			sampleCount = 0;
-		}
+		u8*	 BinarySave2D	(u8* stream, u8 pattern, Mode mode);
 
 		void EvaluatePoint2D(int x, int y) {
 			for (int n=0; n < 8; n++) {
@@ -305,6 +287,73 @@ protected:
 			}
 			sampleCount++;
 		}
+
+		int   position6Bit2D[64*64];
+		int   position5Bit2D[64*64];
+		int   position4Bit2D[64*64];
+		int   position3Bit2D[64*64];
+
+		int   GetValue6Bit2D(int x, int y) { return position6Bit2D[x + y*64]; }
+		int   GetValue5Bit2D(int x, int y) { return position5Bit2D[x + y*64]; }
+		int   GetValue4Bit2D(int x, int y) { return position4Bit2D[x + y*64]; }
+		int   GetValue3Bit2D(int x, int y) { return position3Bit2D[x + y*64]; }
+
+		int GetEvaluation2D(float& score, float& stdDeviation) {
+			int res = -1;
+			float minScore = 999999999.0f;
+			for (int f=0; f < 8; f++) {
+				float avg = sumDistance2D[f] / (float)(sampleCount*1024.0f);
+				float stdDev = 0.0f;
+				for (int n=0; n < sampleCount; n++) {
+					float diffAvg = avg - (distSamples[n][f]/1024.0f);	
+					stdDev += (diffAvg * diffAvg);
+				}
+				if (avg < minScore) {
+					// Return only the best score...
+					score = avg;
+					minScore = score;
+					stdDeviation = stdDev / sampleCount;
+					res = f;
+				}
+			}
+			return res;
+		}
+	};
+
+	struct EvalCtx3D : EvalCtxBase {
+		void BuildTable3D(s16* xFactor, s16* yFactor, s16* zFactor, float* tFactor, float totalDistance, int elementCount);
+		void BuildDistanceField3D();
+
+		LinearEqu3D* equList3D;
+
+		//
+		// 3D
+		//
+		int   sumDistance3D[48];
+		int	  distanceField3D[64*64*64];
+
+		void Set3D(float acceptanceScore, LinearEqu3D* list, int countList, int r, int g, int b) {
+			equList3D= list;
+			equCount = countList;
+			color[0] = r;
+			color[1] = g;
+			color[2] = b;
+			acceptScore = acceptanceScore;
+			BuildDistanceField3D();
+		}
+
+		void Set3DPointCloud(float acceptanceScore, int* ptsXYZ, int ptsCount) {
+			// TODO
+		}
+
+		void EvaluateStart3D() {
+			for (int n=0; n < 6*8; n++) {
+				sumDistance3D[n] = 0;
+			}
+			sampleCount = 0;
+		}
+
+		u8*	 BinarySave3D	(u8* stream, u8 pattern, Mode mode);
 
 		void EvaluatePoint3D(int x, int y, int z) {
 			for (int n=0; n < (8*6); n++) {
@@ -364,26 +413,17 @@ protected:
 			sampleCount++;
 		}
 
-		int GetEvaluation2D(float& score, float& stdDeviation) {
-			int res = -1;
-			float minScore = 999999999.0f;
-			for (int f=0; f < 8; f++) {
-				float avg = sumDistance2D[f] / (float)(sampleCount*1024.0f);
-				float stdDev = 0.0f;
-				for (int n=0; n < sampleCount; n++) {
-					float diffAvg = avg - (distSamples[n][f]/1024.0f);	
-					stdDev += (diffAvg * diffAvg);
-				}
-				if (avg < minScore) {
-					// Return only the best score...
-					score = avg;
-					minScore = score;
-					stdDeviation = stdDev / sampleCount;
-					res = f;
-				}
-			}
-			return res;
-		}
+		int   position6Bit3D[64*64*64];
+		int   position5Bit3D[64*64*64];
+		int   position4Bit3D[64*64*64];
+		int   position3Bit3D[64*64*64];
+//		int   position2Bit3D[64*64*64];
+
+		int   GetValue6Bit3D(int x, int y, int z) { return position6Bit3D[x + y*64 + (z<<12)]; }
+		int   GetValue5Bit3D(int x, int y, int z) { return position5Bit3D[x + y*64 + (z<<12)]; }
+		int   GetValue4Bit3D(int x, int y, int z) { return position4Bit3D[x + y*64 + (z<<12)]; }
+		int   GetValue3Bit3D(int x, int y, int z) { return position3Bit3D[x + y*64 + (z<<12)]; }
+//		int   GetValue2Bit3D(int x, int y, int z) { return position2Bit3D[x + y*64 + (z<<12)]; }
 
 		int GetEvaluation3D(float& score) {
 			int res = -1;
@@ -399,25 +439,18 @@ protected:
 			}
 			return res;
 		}
-
-		u8 value6Bit[8*8*2];
-		u8 value5Bit[8*8*2];
-		u8 value4Bit[8*8*2];
-		u8 value3Bit[8*8*2];
-//		u8 value2Bit[8*8*2];
-
-	private:
-		void BuildDistanceField2D();
-		void BuildDistanceField3D();
 	};
 
-	EvalCtx	correlationPattern[256];
-	int     correlationPatternCount;
+	EvalCtx3D	correlationPattern3D[256];
+	EvalCtx2D	correlationPattern2D[2048];
+	int			correlationPatternCount3D;
+	int			correlationPatternCount2D;
 	void Create2DCorrelationPatterns();
 
 
-	Mode computeValues2D(int flipMode, int px,int py, float* mapX, float* mapY, int pixCnt, BoundingBox bb, EvalCtx& ev, int& minSumErrDiff);
-	Mode computeValues3D(int tileSizeX, int tileSizeY, u8* mask, int flipMode, Image* input,int px,int py, BoundingBox3D bb, EvalCtx& ev, int& minSumErrDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/);
+	Mode computeValues2D(int flipMode, int px,int py, float* mapX, float* mapY, int pixCnt, BoundingBox bb, EvalCtx2D& ev, int& minSumErrDiff);
+	Mode computeValues3D(int tileSizeX, int tileSizeY, u8* mask, int flipMode, Image* input,int px,int py, BoundingBox3D bb, EvalCtx3D& ev, int& minSumErrDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/);
+	Mode computeValues2D(int planeMode, int tileSizeX, int tileSizeY, u8* mask, int flipMode, Image* input,int px,int py, BoundingBox   bb, EvalCtx2D& ev, int& minSumErrDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/);
 
 public:
 	void convert(const char* outputFile);

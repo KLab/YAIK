@@ -618,8 +618,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask   ],pCtx->mapRGBMask,pCtx->sizeMapMask);
 					memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask<<1],pCtx->mapRGBMask,pCtx->sizeMapMask);
 					// Duplicate Processed map of 4x4 tile. (until now it was RGB within a single bit-map)
-					memcpy(&pCtx->mapRGBMask[pCtx->tile4x4MaskSize   ],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
-					memcpy(&pCtx->mapRGBMask[pCtx->tile4x4MaskSize<<1],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
+					memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize   ],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
+					memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize<<1],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
 				}
 
 				// -------------------------------------------------------------------
