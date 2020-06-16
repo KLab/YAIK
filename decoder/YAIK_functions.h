@@ -103,7 +103,7 @@ void DecompressGradient4x4						(YAIK_Instance* pInstance
 // -----------------------------------------------------------------------------------------------------------------------------------------
 
 // Parameters to pass to the function and update from function.
-struct Tile3DParam {
+struct TileParam {
 	u8* stream3Bit;
 	u8* stream4Bit;
 	u8* stream5Bit;
@@ -114,12 +114,23 @@ struct Tile3DParam {
 	u8* currentMap;
 };
 
-void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
-void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
-void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
-void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
-void Tile3D_4x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
-void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, Tile3DParam* param, u8** TBLLUT);
+void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile3D_4x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+
+// -----------------------------------------------------------------------------------------------------------------------------------------
+//   2D LUT TILE
+// -----------------------------------------------------------------------------------------------------------------------------------------
+
+void Tile2D_8x8_RG (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile2D_4x4_RG (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile2D_8x8_GB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile2D_4x4_GB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile2D_8x8_RB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
+void Tile2D_4x4_RB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
 
 // -----------------------------------------------------------------------------------------------------------------------------------------
 //   Generic Math Bit Macro to make code a bit clearer

@@ -62,6 +62,7 @@ struct YAIK_Library {
 	// Allocate slots.
 	YAIK_Instance*	instances;
 	u8*				LUT3D_BitFormat[4];
+	u8*				LUT2D_BitFormat[4];
 	YAIK_SMemAlloc	libraryAllocator;
 	YAIK_Instance*	AllocInstance	();
 	void			FreeInstance	(YAIK_Instance* inst);
@@ -323,6 +324,8 @@ struct HeaderTile3D {
 	u16 sizeT4_8MapCmp;
 	u16 sizeT8_4MapCmp;
 	u16 sizeT4_4MapCmp;
+
+	u8  component;
 
 	// + Stream 3 Bit
 	// + Stream 4 Bit

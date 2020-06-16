@@ -1,6 +1,15 @@
 #include "YAIK_functions.h"
 
-#include <stdio.h>
+// #define DEBUG_LOG
+
+#ifdef DEBUG_LOG
+	#include <stdio.h>
+	#define DBG_CODED_DEF		int coded = 0;
+	#define DBG_CODED(a)		coded |= a;
+#else
+	#define DBG_CODED_DEF		;
+	#define DBG_CODED(a)		;
+#endif
 
 // [TODO] : Write document about Gradient representation (PDF ?) and link to documentation folder.
 // [TODO] : tile4x4Mask is using a different stride when image is NOT a multiple of 16 pixel. Implementation rely on x8 stride for now. MUST use x16 aligned stride !
@@ -18,9 +27,13 @@
 
 void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTilebitmap, u8* dataUncompressedRGB, u8* planeR, u8* planeG, u8* planeB, u8 planeBit) {
 	if (planeBit != 7) {
-		// Not suppored yet.
+		// Not supported in this version.
+#ifdef YAIK_DEVEL
 		while (1) {
 		}
+#else
+		return;
+#endif
 	}
 
 	u16 iw			= pInstance->width;
@@ -122,12 +135,15 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 								pCornerRGB[14] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
+								xt<<4,yt<<4,
+								rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2],
+								rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14],
+								rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2],
+								rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -186,9 +202,13 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 
 void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebitmap, u8* dataUncompressedRGB, u8* planeR, u8* planeG, u8* planeB, u8 planeBit) {
 	if (planeBit != 7) {
-		// Not suppored yet.
+		// Not supported in this version.
+#ifdef YAIK_DEVEL
 		while (1) {
 		}
+#else
+		return;
+#endif
 	}
 
 	u16 iw			= pInstance->width;
@@ -315,12 +335,15 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 								pCornerRGB[14] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
+								xt,yt,
+								rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2],
+								rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14],
+								rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2],
+								rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -373,9 +396,13 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 
 void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTilebitmap, u8* dataUncompressedRGB, u8* planeR, u8* planeG, u8* planeB, u8 planeBit) {
 	if (planeBit != 7) {
-		// Not suppored yet.
+		// Not supported in this version.
+#ifdef YAIK_DEVEL
 		while (1) {
 		}
+#else
+		return;
+#endif
 	}
 
 	u16 iw			= pInstance->width;
@@ -499,12 +526,15 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 								pCornerRGB[8] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
+								xt,yt,
+								rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2],
+								rgbCorner[0][ 6],rgbCorner[0][ 7],rgbCorner[0][ 8],
+								rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2],
+								rgbCorner[1][ 6],rgbCorner[1][ 7],rgbCorner[1][ 8]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -560,9 +590,13 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 
 void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebitmap, u8* dataUncompressedRGB, u8* planeR, u8* planeG, u8* planeB, u8 planeBit) {
 	if (planeBit != 7) {
-		// Not suppored yet.
+		// Not supported in this version.
+#ifdef YAIK_DEVEL
 		while (1) {
 		}
+#else
+		return;
+#endif
 	}
 
 	u16 iw			= pInstance->width;
@@ -692,12 +726,15 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 								pCornerRGB[8] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
+								xt,yt,
+								rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2],
+								rgbCorner[0][ 6],rgbCorner[0][ 7],rgbCorner[0][ 8],
+								rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2],
+								rgbCorner[1][ 6],rgbCorner[1][ 7],rgbCorner[1][ 8]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -752,9 +789,13 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 	u8* bckPal = dataUncompressedRGB;
 
 	if (planeBit != 7) {
-		// Not suppored yet.
+		// Not supported in this version.
+#ifdef YAIK_DEVEL
 		while (1) {
 		}
+#else
+		return;
+#endif
 	}
 
 	u16 iw			= pInstance->width;
@@ -883,12 +924,15 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 								pCornerRGB[8] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
+								xt,yt,
+								rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2],
+								rgbCorner[0][ 6],rgbCorner[0][ 7],rgbCorner[0][ 8],
+								rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2],
+								rgbCorner[1][ 6],rgbCorner[1][ 7],rgbCorner[1][ 8]
+							);
+#endif
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + ((yt & 4)<<3); // ((yt & 4)<<3) = Odd / Even Tile vertically (4x8)
 
@@ -939,9 +983,13 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 
 void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebitmap, u8* dataUncompressedRGB, u8* planeR, u8* planeG, u8* planeB, u8 planeBit) {
 	if (planeBit != 7) {
-		// Not suppored yet.
+		// Not supported in this version.
+#ifdef YAIK_DEVEL
 		while (1) {
 		}
+#else
+		return;
+#endif
 	}
 
 	u16 iw			= pInstance->width;
@@ -1071,12 +1119,15 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
+								xt,yt,
+								rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2],
+								rgbCorner[0][ 3],rgbCorner[0][ 4],rgbCorner[0][ 5],
+								rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2],
+								rgbCorner[1][ 3],rgbCorner[1][ 4],rgbCorner[1][ 5]
+							);
+#endif
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4);
 							
@@ -1285,12 +1336,15 @@ void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
+								xt,yt,
+								rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2],
+								rgbCorner[0][ 3],rgbCorner[0][ 4],rgbCorner[0][ 5],
+								rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2],
+								rgbCorner[1][ 3],rgbCorner[1][ 4],rgbCorner[1][ 5]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -1437,8 +1491,10 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 							rgbCorner[0] = pCornerRGB;
 
 							int v = 1<<MOD8(idxX2);
+							DBG_CODED_DEF;
 							if ((hasR[DIV8(idxX2)] & v)==0) {
 								hasR [DIV8(idxX2)]|= v;
+								DBG_CODED(0x0001);
 								// Load LT
 								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1446,6 +1502,7 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 							}
 							if ((hasG[DIV8(idxX2)] & v)==0) {
 								hasG [DIV8(idxX2)]|= v;
+								DBG_CODED(0x0002);
 								// Load LT
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1456,6 +1513,7 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasR[DIV8(tmpIdx)] & v)==0) {
 								hasR [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0010);
 								// Load RT
 								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1463,6 +1521,7 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 							}
 							if ((hasG[DIV8(tmpIdx)] & v)==0) {
 								hasG [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0020);
 								// Load RT
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1476,6 +1535,7 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasR[DIV8(tmpIdx)] & v)==0) {
 								hasR [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0100);
 								// Load LB
 								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1483,6 +1543,7 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 							}
 							if ((hasG[DIV8(tmpIdx)] & v)==0) {
 								hasG [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0200);
 								// Load LB
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1493,6 +1554,7 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasR[DIV8(tmpIdx)] & v)==0) {
 								hasR [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x1000);
 								// Load RB
 								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1500,18 +1562,23 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 							}
 							if ((hasG[DIV8(tmpIdx)] & v)==0) {
 								hasG [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x2000);
 								// Load RB
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
 //								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Coded %x Grad %i,%i [%i,%i][%i,%i]-[%i,%i][%i,%i]\n",
+								coded,
+								xt,yt,
+								rgbCorner[0][ 0],rgbCorner[0][ 1],
+								rgbCorner[0][ 3],rgbCorner[0][ 4],
+								rgbCorner[1][ 0],rgbCorner[1][ 1],
+								rgbCorner[1][ 3],rgbCorner[1][ 4]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -1661,8 +1728,10 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 							rgbCorner[0] = pCornerRGB;
 
 							int v = 1<<MOD8(idxX2);
+							DBG_CODED_DEF;
 							if ((hasG[DIV8(idxX2)] & v)==0) {
 								hasG [DIV8(idxX2)]|= v;
+								DBG_CODED(0x0002);
 								// Load LT
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1670,6 +1739,7 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 							}
 							if ((hasB[DIV8(idxX2)] & v)==0) {
 								hasB [DIV8(idxX2)]|= v;
+								DBG_CODED(0x0004);
 								// Load LT
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1680,6 +1750,7 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasG[DIV8(tmpIdx)] & v)==0) {
 								hasG [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0020);
 								// Load RT
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1687,6 +1758,7 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 							}
 							if ((hasB[DIV8(tmpIdx)] & v)==0) {
 								hasB [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0040);
 								// Load RT
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1700,6 +1772,7 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasG[DIV8(tmpIdx)] & v)==0) {
 								hasG [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0200);
 								// Load LB
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1707,6 +1780,7 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 							}
 							if ((hasB[DIV8(tmpIdx)] & v)==0) {
 								hasB [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0400);
 								// Load LB
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1717,6 +1791,7 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasG[DIV8(tmpIdx)] & v)==0) {
 								hasG [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x2000);
 								// Load RB
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1724,18 +1799,23 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 							}
 							if ((hasB[DIV8(tmpIdx)] & v)==0) {
 								hasB [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x4000);
 								// Load RB
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
 								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Coded %x Grad %i,%i [%i,%i][%i,%i]-[%i,%i][%i,%i]\n",
+								coded,
+								xt,yt,
+								rgbCorner[0][ 1],rgbCorner[0][ 2],
+								rgbCorner[0][ 4],rgbCorner[0][ 5],
+								rgbCorner[1][ 1],rgbCorner[1][ 2],
+								rgbCorner[1][ 4],rgbCorner[1][ 5]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -1892,8 +1972,10 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 							rgbCorner[0] = pCornerRGB;
 
 							int v = 1<<MOD8(idxX2);
+							DBG_CODED_DEF;
 							if ((hasR[DIV8(idxX2)] & v)==0) {
 								hasR [DIV8(idxX2)]|= v;
+								DBG_CODED(0x0001);
 								// Load LT
 								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1901,6 +1983,7 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 							}
 							if ((hasB[DIV8(idxX2)] & v)==0) {
 								hasB [DIV8(idxX2)]|= v;
+								DBG_CODED(0x0004);
 								// Load LT
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1911,6 +1994,7 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasR[DIV8(tmpIdx)] & v)==0) {
 								hasR [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0010);
 								// Load RT
 								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1918,6 +2002,7 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 							}
 							if ((hasB[DIV8(tmpIdx)] & v)==0) {
 								hasB [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0040);
 								// Load RT
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1931,6 +2016,7 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasR[DIV8(tmpIdx)] & v)==0) {
 								hasR [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0100);
 								// Load LB
 								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1938,6 +2024,7 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 							}
 							if ((hasB[DIV8(tmpIdx)] & v)==0) {
 								hasB [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0400);
 								// Load LB
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -1948,6 +2035,7 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasR[DIV8(tmpIdx)] & v)==0) {
 								hasR [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x1000);
 								// Load RB
 								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -1955,18 +2043,23 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 							}
 							if ((hasB[DIV8(tmpIdx)] & v)==0) {
 								hasB [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x4000);
 								// Load RB
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
 								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Coded %x Grad %i,%i [%i,%i][%i,%i]-[%i,%i][%i,%i]\n",
+								coded,
+								xt,yt,
+								rgbCorner[0][ 0],rgbCorner[0][ 2],
+								rgbCorner[0][ 3],rgbCorner[0][ 5],
+								rgbCorner[1][ 0],rgbCorner[1][ 2],
+								rgbCorner[1][ 3],rgbCorner[1][ 5]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -2115,8 +2208,10 @@ void DecompressGradient4x4R						(YAIK_Instance* pInstance
 							rgbCorner[0] = pCornerRGB;
 
 							int v = 1<<MOD8(idxX2);
+							DBG_CODED_DEF;
 							if ((hasR[DIV8(idxX2)] & v)==0) {
 								hasR [DIV8(idxX2)]|= v;
+								DBG_CODED(0x0001);
 								// Load LT
 								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -2127,6 +2222,7 @@ void DecompressGradient4x4R						(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasR[DIV8(tmpIdx)] & v)==0) {
 								hasR [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0010);
 								// Load RT
 								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -2140,6 +2236,7 @@ void DecompressGradient4x4R						(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasR[DIV8(tmpIdx)] & v)==0) {
 								hasR [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0100);
 								// Load LB
 								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -2150,18 +2247,23 @@ void DecompressGradient4x4R						(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasR[DIV8(tmpIdx)] & v)==0) {
 								hasR [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x1000);
 								// Load RB
 								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
 //								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Coded %x Grad %i,%i [%i][%i]-[%i][%i]\n",
+								coded,
+								xt,yt,
+								rgbCorner[0][ 0],
+								rgbCorner[0][ 3],
+								rgbCorner[1][ 0],
+								rgbCorner[1][ 3]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -2302,8 +2404,10 @@ void DecompressGradient4x4G						(YAIK_Instance* pInstance
 							rgbCorner[0] = pCornerRGB;
 
 							int v = 1<<MOD8(idxX2);
+							DBG_CODED_DEF;
 							if ((hasG[DIV8(idxX2)] & v)==0) {
 								hasG [DIV8(idxX2)]|= v;
+								DBG_CODED(0x0002);
 								// Load LT
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -2314,6 +2418,7 @@ void DecompressGradient4x4G						(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasG[DIV8(tmpIdx)] & v)==0) {
 								hasG [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0020);
 								// Load RT
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -2327,6 +2432,7 @@ void DecompressGradient4x4G						(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasG[DIV8(tmpIdx)] & v)==0) {
 								hasG [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0200);
 								// Load LB
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -2337,18 +2443,23 @@ void DecompressGradient4x4G						(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasG[DIV8(tmpIdx)] & v)==0) {
 								hasG [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x2000);
 								// Load RB
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 								pCornerRGB[4] = *dataUncompressedRGB++;
 //								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Coded %x Grad %i,%i [%i][%i]-[%i][%i]\n",
+								coded,
+								xt,yt,
+								rgbCorner[0][ 1],
+								rgbCorner[0][ 4],
+								rgbCorner[1][ 1],
+								rgbCorner[1][ 4]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
@@ -2491,8 +2602,10 @@ void DecompressGradient4x4B						(YAIK_Instance* pInstance
 							rgbCorner[0] = pCornerRGB;
 
 							int v = 1<<MOD8(idxX2);
+							DBG_CODED_DEF;
 							if ((hasB[DIV8(idxX2)] & v)==0) {
 								hasB [DIV8(idxX2)]|= v;
+								DBG_CODED(0x0004);
 								// Load LT
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -2503,6 +2616,7 @@ void DecompressGradient4x4B						(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasB[DIV8(tmpIdx)] & v)==0) {
 								hasB [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0040);
 								// Load RT
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
@@ -2516,6 +2630,7 @@ void DecompressGradient4x4B						(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasB[DIV8(tmpIdx)] & v)==0) {
 								hasB [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x0400);
 								// Load LB
 //								pCornerRGB[0] = *dataUncompressedRGB++;
 //								pCornerRGB[1] = *dataUncompressedRGB++;
@@ -2526,18 +2641,23 @@ void DecompressGradient4x4B						(YAIK_Instance* pInstance
 							v = 1<<MOD8(tmpIdx);
 							if ((hasB[DIV8(tmpIdx)] & v)==0) {
 								hasB [DIV8(tmpIdx)]|= v;
+								DBG_CODED(0x4000);
 								// Load RB
 //								pCornerRGB[3] = *dataUncompressedRGB++;
 //								pCornerRGB[4] = *dataUncompressedRGB++;
 								pCornerRGB[5] = *dataUncompressedRGB++;
 							}
 
-							/*
-							printf("Tile Color TL : %i,%i,%i\n",rgbCorner[0][ 0],rgbCorner[0][ 1],rgbCorner[0][ 2]);
-							printf("Tile Color TR : %i,%i,%i\n",rgbCorner[0][12],rgbCorner[0][13],rgbCorner[0][14]);
-							printf("Tile Color BL : %i,%i,%i\n",rgbCorner[1][ 0],rgbCorner[1][ 1],rgbCorner[1][ 2]);
-							printf("Tile Color BR : %i,%i,%i\n",rgbCorner[1][12],rgbCorner[1][13],rgbCorner[1][14]);
-							*/
+#ifdef DEBUG_LOG
+							printf("Coded %x Grad %i,%i [%i][%i]-[%i][%i]\n",
+								coded,
+								xt,yt,
+								rgbCorner[0][ 2],
+								rgbCorner[0][ 5],
+								rgbCorner[1][ 2],
+								rgbCorner[1][ 5]
+							);
+#endif
 
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.

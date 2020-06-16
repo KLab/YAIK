@@ -61,9 +61,43 @@ void RGBtoYCoCg(int R, int G, int B, int& oY, int& oCo,int& oCg) {
 	// -191..+64 + -127..384 = -318..+448
 	int Y = tmp + Cg / 2;
 
-	oY  = Y;  // 0..255
+	oY  = Y;    // 0..255
 	oCo = Co/2; // -255..+255 -> -127..+127
 	oCg = Cg/2; // -255..+255 -> -127..+127 Encoder could keep quality.
+}
+
+void RGBtoYCoCgPos(int R, int G, int B, int& oY, int& oCo,int& oCg) {
+
+	// -255..+255
+	int Co = R - B;
+	// 0..255 + (-127..+127) => -127..382
+	int tmp = B + Co / 2;
+	// -382..+128
+	int Cg = G - tmp;
+	// -191..+64 + -127..384 = -318..+448
+	int Y = tmp + Cg / 2;
+
+	oY  = Y;    // 0..255
+	oCo = (Co/2) + 127; // -255..+255 -> -127..+127 -> 0..254
+	oCg = (Cg/2) + 127; // -255..+255 -> -127..+127 -> 0..254 Encoder could keep quality.
+}
+
+void YCoCgPostoRGB(int Y, int Co, int Cg, int& oR, int& oG,int& oB) {
+	Y  -= 127;
+	Co -= 127;
+	Cg -= 127;
+
+	Co *= 2;
+	Cg *= 2;
+
+	int tmp = Y - Cg / 2;
+	int G = Cg + tmp;
+	int B = tmp - Co / 2;
+	int R = B + Co;
+
+	oR = R * 2;
+	oG = G * 2;
+	oB = B * 2;
 }
 
 void YCoCgtoRGB(int Y, int Co, int Cg, int& oR, int& oG,int& oB) {
@@ -81,31 +115,53 @@ void YCoCgtoRGB(int Y, int Co, int Cg, int& oR, int& oG,int& oB) {
 }
 
 
-BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsizeX, int tsizeY, int& pixelInTile, u8* pMask) {
+BoundingBox3D roundNBit(BoundingBox3D bb3, int sh) {
+	const int offS = ((1<<sh)-1);
+	// ----- Low Rounding.
+	bb3.x0 <<= sh; bb3.x0 >>= sh;
+	bb3.y0 <<= sh; bb3.y0 >>= sh;
+	bb3.z0 <<= sh; bb3.z0 >>= sh;
+
+	// ----- High Rounding
+	bb3.x1 <<= sh; bb3.x1 >>= sh; bb3.x1 += offS;
+	bb3.y1 <<= sh; bb3.y1 >>= sh; bb3.y1 += offS;
+	bb3.z1 <<= sh; bb3.z1 >>= sh; bb3.z1 += offS;
+	return bb3;
+}
+
+BoundingBox3D buildBBox3D(Image* p, bool useYCoCg,Image* pFilter, int px, int py, int tsizeX, int tsizeY, int& pixelInTile, u8* pMask, bool& allInside) {
 	bool isOutSide;
 	bool isIsFirst = true;
 	BoundingBox3D bb3;
 
 	int pixelCount = 0;
 
+	// By default.
+	allInside = true;
+
 	for (int y=0; y < tsizeY; y++) {
 		for (int x=0; x < tsizeX; x++) {
 			// Skip scanning.
 			int rgb[3];
 			pFilter->GetPixel(x+px,y+py,rgb,isOutSide);
-		
-			pMask[x + y*tsizeX] = rgb[0];
+
+			if (isOutSide) {
+				allInside = false;
+				goto exitFunc;
+			}
 
 			if (rgb[0]==255 && rgb[1]==255 && rgb[2]==255) {
+				pMask[x + y*tsizeX] = 255;
 				continue; 
 			}
 
+			pMask[x + y*tsizeX] = pixelCount;
 			pixelCount++;
 			p->GetPixel(x+px,y+py,rgb,isOutSide);
 
-			rgb[0] >>= 0;
-			rgb[1] >>= 0;
-			rgb[2] >>= 0;
+			if (useYCoCg) {
+				RGBtoYCoCgPos(rgb[0],rgb[1],rgb[2],rgb[0],rgb[1],rgb[2]);
+			}
 
 			if (isIsFirst) {
 				bb3.x0 = rgb[0];
@@ -131,6 +187,7 @@ BoundingBox3D buildBBox3D(Image* p, Image* pFilter, int px, int py, int tsizeX, 
 		}
 	}
 
+exitFunc:
 	if (isIsFirst) { // Not single pixel processed.
 		bb3.x0 = -1; bb3.x1 = -1;
 		bb3.y0 = -1; bb3.y1 = -1;
@@ -173,7 +230,7 @@ BoundingBox buildBBox2D(EncoderContext::PlaneMode planeMode,Image* p, Image* pFi
 		
 			pMask[x + y*tsizeX] = ab[0] | ab[1]; // If any is 255, then mask return 255.
 
-			if ((ab[0]!=0) && (ab[1]!=0)) {
+			if ((ab[0]!=0) || (ab[1]!=0)) {
 				continue; 
 			}
 
@@ -1170,9 +1227,23 @@ int GetTileEncode_Y(TileInfo& outTile, Plane* src, Plane* validPixel, Plane* qua
 
 bool EncoderContext::LoadImagePNG(const char* fileName) {
 	// Create all the necessary LUT for internal encoding.
-	DynamicTileEncoderTable();
+	// OUT. DynamicTileEncoderTable();
 
+	if (original) {
+		delete original;
+	}
 	original = Image::LoadPNG(fileName);
+
+	if (original && pStats) {
+		FILE* fGlobStat = fopen("globalStats.bin","rb");
+		if (fGlobStat) {
+			fread(pStats, sizeof(EncoderStats), 1, fGlobStat);
+			fclose(fGlobStat);
+		}
+
+		pStats->loc.Reset(original->GetWidth(),original->GetHeight());
+	}
+
 	return (original != NULL);
 }
 
@@ -2830,10 +2901,16 @@ static const uint32_t morton256_z[256] = {
 };
 
 u32 encode(int r, int g, int b) {
-//	return morton256_x[r] | morton256_y[g] | morton256_z[b];
-	return (210 * r) + (720 * g) + (70 * b);
+	return morton256_x[r] | morton256_y[g] | morton256_z[b];
+//	return (210 * r) + (720 * g) + (70 * b);
 }
-void sortPalette(u8* position, u8* palette) {
+
+u32 encode2D(int a, int b) {
+	return morton256_x[a] | morton256_y[b];
+//	return (210 * r) + (720 * g) + (70 * b);
+}
+
+void sortPalette(u8* position, u8* palette, u8 count) {
 		
 	// 1. Start from lower corner.
 	// Each time :
@@ -2845,10 +2922,10 @@ void sortPalette(u8* position, u8* palette) {
 	u32 colorMorton;
 	u8* rPal = palette;
 
-	for(int counter1=0;counter1<63*3;counter1+=3)
+	for(int counter1=0;counter1<(count-1)*3;counter1+=3)
 	{
 		int minimum=counter1;
-		for(int counter2=counter1+3;counter2<64*3;counter2+=3)
+		for(int counter2=counter1+3;counter2<(count*3);counter2+=3)
 		{
 			u32 colorMortonMin = encode(rPal[minimum ],rPal[minimum +1],rPal[minimum +2]);
 			u32 colorMortonA   = encode(rPal[counter2 ],rPal[counter2 +1],rPal[counter2 +2]);
@@ -2866,6 +2943,45 @@ void sortPalette(u8* position, u8* palette) {
 			rPal[minimum   ]=temp_valueR;
 			rPal[minimum +1]=temp_valueG;
 			rPal[minimum +2]=temp_valueB;
+			int c1D3 = counter1 / 3;
+			int  mD3 = minimum  / 3;
+			u8 tmpPos      = position[c1D3];
+			position[c1D3] = position[mD3];
+			position[mD3]  = tmpPos;
+		}
+	}
+}
+
+void sortPalette2D(u8* position, u8* palette, u8 count) {
+		
+	// 1. Start from lower corner.
+	// Each time :
+	// 2. Look at the direction of 'center of mass' of remaining point.
+	// 3. Find closest point + in direction of center of mass. (direction score > distance score)
+	// 4. Remove point from list, including point with angle >90 or <-90 deg from new point. (past point unused are removed too) 
+		// Score point removal --> too big : palette is not a single curve but complex stuff... --> Stop.
+
+	u32 colorMorton;
+	u8* rPal = palette;
+
+	for(int counter1=0;counter1<(count-1)*2;counter1+=2)
+	{
+		int minimum=counter1;
+		for(int counter2=counter1+2;counter2<(count*2);counter2+=2)
+		{
+			u32 colorMortonMin = encode2D(rPal[minimum ],rPal[minimum +1]);
+			u32 colorMortonA   = encode2D(rPal[counter2 ],rPal[counter2 +1]);
+			if (colorMortonMin>colorMortonA)
+				minimum=counter2;
+		}
+
+		if(minimum!=counter1) {
+			u8 temp_valueR=rPal[counter1  ];
+			u8 temp_valueG=rPal[counter1+1];
+			rPal[counter1  ]=rPal[minimum  ];
+			rPal[counter1+1]=rPal[minimum+1];
+			rPal[minimum   ]=temp_valueR;
+			rPal[minimum +1]=temp_valueG;
 			int c1D3 = counter1 / 3;
 			int  mD3 = minimum  / 3;
 			u8 tmpPos      = position[c1D3];
@@ -2925,7 +3041,9 @@ void EncoderContext::DumpTileRGB() {
 
 				u8 tileMask[128];
 				int pixelInTile;
-				BoundingBox3D bb3 = buildBBox3D(original,mapSmoothTile,x,y,tileSize,tileSize,pixelInTile,tileMask);
+				bool allInside;
+				
+				BoundingBox3D bb3 = buildBBox3D(original,false,mapSmoothTile,x,y,tileSize,tileSize,pixelInTile,tileMask,allInside);
 
 				if (pixelInTile == 0) { tileCnt++; continue; }
 
@@ -3090,7 +3208,10 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 	if (!smoothMap) {
 		createMap = true;
 		smoothMap = new Plane(imgW,imgH);
-		mapSmoothTile = Image::CreateImage(imgW,imgH,3,true);
+		if (!evaluateLUT2D) {
+			mapSmoothTile = Image::CreateImage(imgW,imgH,3,true);
+			mapSmoothTile->Clear();
+		}
 		mappedRGB     = Image::CreateImage(imgW+1,imgH+1,3,true);
 		BoundingBox bb = smoothMap->GetRect();
 		smoothMap->Fill(bb,0);
@@ -3129,7 +3250,7 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 	int sizeStream  = streamW * streamH * 3;
 	u8* rgbStream   = new u8[sizeStream];
 	u8* wrRgbStream = rgbStream;
-	memset(rgbStream, 0, sizeStream);
+//	memset(rgbStream, 0, sizeStream);
 
 	int rTile[256];
 	int gTile[256];
@@ -3244,6 +3365,11 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 								rgbCurr[1] = srcB ? srcB->GetPixelValue(x+dx,y+dy,isOutside) : 0;
 								rgbCurr[2] = srcC ? srcC->GetPixelValue(x+dx,y+dy,isOutside) : 0;
 
+								if (isOutside) {
+									rejectTile = true; // Bottom partly cut tile can not be encoded... sorry... not for now.
+									goto nextTile;
+								}
+
 								if (tileSizeX == 4) {
 									lF = weight4[dx];
 								} else {
@@ -3277,9 +3403,9 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 								int blendC6O[3];
 
 								for (int ch=0; ch<3;ch++) {
-									blendT6[ch] = rgbTL6[ch] * lF + rgbTR6[ch] * rF; // *1024 scale
-									blendB6[ch] = rgbBL6[ch] * lF + rgbBR6[ch] * rF;
-									blendC6[ch] = ((blendT6[ch] * tF + blendB6[ch] * bF) + rounding) / (1024*1024);
+									blendT6 [ch] =    rgbTL6[ch] * lF +  rgbTR6[ch] * rF; // *1024 scale
+									blendB6 [ch] =    rgbBL6[ch] * lF +  rgbBR6[ch] * rF;
+									blendC6 [ch] = ((blendT6[ch] * tF + blendB6[ch] * bF) + rounding) / (1024*1024);
 									blendC6O[ch] = ((blendT6[ch] * tF + blendB6[ch] * bF)) / (1024*1024);
 								}
 
@@ -3312,14 +3438,25 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 							int EncodedA[3],EncodedB[3],EncodedC[3],EncodedD[3];
 					
 							for (int n=0; n < 3; n++) {
-								EncodedA[n] = mappedRGB->GetPlane(n)->GetPixelValue				  (x         ,y         ,isOutside);
-								if (!isOutside && !EncodedA[n]) { mappedRGB->GetPlane(n)->SetPixel(x         ,y         ,255); }
-								EncodedB[n] = mappedRGB->GetPlane(n)->GetPixelValue               (x+tileSizeX,y         ,isOutside);
-								if (!isOutside && !EncodedB[n]) { mappedRGB->GetPlane(n)->SetPixel(x+tileSizeX,y         ,255); }
-								EncodedC[n] = mappedRGB->GetPlane(n)->GetPixelValue               (x         ,y+tileSizeY,isOutside);
-								if (!isOutside && !EncodedC[n]) { mappedRGB->GetPlane(n)->SetPixel(x         ,y+tileSizeY,255); }
-								EncodedD[n] = mappedRGB->GetPlane(n)->GetPixelValue               (x+tileSizeX,y+tileSizeY,isOutside);
-								if (!isOutside && !EncodedD[n]) { mappedRGB->GetPlane(n)->SetPixel(x+tileSizeX,y+tileSizeY,255); }
+								Plane* p = mappedRGB->GetPlane(n);
+								if ((n == 0 && (PlaneBit&1)) || (n==1 && (PlaneBit&2)) || (n==2 && (PlaneBit&4))) {
+									EncodedA[n] = p->GetPixelValue				  (x         ,y           ,isOutside);
+									if (!isOutside && !EncodedA[n]) {
+										p->SetPixel(x ,y ,255); 
+									}
+									EncodedB[n] = p->GetPixelValue               (x+tileSizeX,y          ,isOutside);
+									if (!isOutside && !EncodedB[n]) {
+										p->SetPixel(x+tileSizeX,y,255); 
+									}
+									EncodedC[n] = p->GetPixelValue               (x         ,y+tileSizeY ,isOutside);
+									if (!isOutside && !EncodedC[n]) {
+										p->SetPixel(x,y+tileSizeY,255); 
+									}
+									EncodedD[n] = p->GetPixelValue               (x+tileSizeX,y+tileSizeY,isOutside);
+									if (!isOutside && !EncodedD[n]) {
+										p->SetPixel(x+tileSizeX,y+tileSizeY,255);
+									}
+								}
 							}
 			
 							// Is this pixel have been processed ?
@@ -3344,6 +3481,56 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 
 							TileDone++;
 
+							if (pStats) {
+								int pixelCountTile = tileSizeX * tileSizeY;
+								if (srcA && srcB && srcC) {
+									if ((tileSizeX == 16) && (tileSizeY == 16)) {
+										pStats->loc.pixelCountGradient16_16 += pixelCountTile;
+									}
+									if ((tileSizeX == 16) && (tileSizeY == 8)) {
+										pStats->loc.pixelCountGradient16_8 += pixelCountTile;
+									}
+									if ((tileSizeX == 8) && (tileSizeY == 16)) {
+										pStats->loc.pixelCountGradient8_16 += pixelCountTile;
+									}
+									if ((tileSizeX == 8) && (tileSizeY == 8)) {
+										pStats->loc.pixelCountGradient8_8 += pixelCountTile;
+									}
+									if ((tileSizeX == 4) && (tileSizeY == 8)) {
+										pStats->loc.pixelCountGradient4_8 += pixelCountTile;
+									}
+									if ((tileSizeX == 8) && (tileSizeY == 4)) {
+										pStats->loc.pixelCountGradient8_4 += pixelCountTile;
+									}
+									if ((tileSizeX == 4) && (tileSizeY == 4)) {
+										pStats->loc.pixelCountGradient4_4 += pixelCountTile;
+									}
+
+									pStats->loc.pixelCount3DGradientTotal += pixelCountTile;
+								}
+								else
+								if ((srcA && srcB) || (srcC && srcB) || (srcA && srcC)) {
+									pStats->loc.pixelCount2DGradientTotal += pixelCountTile;
+
+									if ((tileSizeX == 4) && (tileSizeY == 4)) {
+										if (srcA && srcB) {
+											pStats->loc.pixelCountGradientRG_4_4 += pixelCountTile;
+										}
+										if (srcB && srcC) {
+											pStats->loc.pixelCountGradientGB_4_4 += pixelCountTile;
+										}
+										if (srcA && srcC) {
+											pStats->loc.pixelCountGradientRB_4_4 += pixelCountTile;
+										}
+									}
+
+									pStats->loc.pixelCount2DGradientTotal	+= pixelCountTile;
+								} else {
+									// 1D Gradient : Do nothing for now...
+									pStats->loc.pixelCount1DGradientTotal	+= pixelCountTile;
+								}
+							}
+
 							for (int dy = 0; dy < tileSizeY; dy++) {
 								for (int dx = 0; dx < tileSizeX; dx++) {
 									int idxT = dx + dy*tileSizeX;
@@ -3356,37 +3543,114 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 
 							// Write Top Left
 							bool orgTile = (!rejectTile || !rejectTileO);
-							int* TL = orgTile ? rgbTL : rgbTL6;
-							int* TR = orgTile ? rgbTR : rgbTR6;
-							int* BL = orgTile ? rgbBL : rgbBL6;
-							int* BR = orgTile ? rgbBR : rgbBR6;
+							int* TL = rgbTL; // orgTile ?  : rgbTL6;   // Allow RGB full width to blend, even if matching not good in 888 space (but ok in 666 space)
+							int* TR = rgbTR; // orgTile ?  : rgbTR6;
+							int* BL = rgbBL; // orgTile ?  : rgbBL6;
+							int* BR = rgbBR; // orgTile ?  : rgbBR6;
 
-							if (srcA && !EncodedA[0]) { *wrRgbStream++ = TL[0]; /*printf("TL\n");*/ }
-							if (srcB && !EncodedA[1]) { *wrRgbStream++ = TL[1]; }
-							if (srcC && !EncodedA[2]) { *wrRgbStream++ = TL[2]; }
+							int coded = 0;
+
+							if (srcA && !EncodedA[0]) { *wrRgbStream++ = TL[0]; coded |= 0x0001; /*printf("TL\n");*/ }
+							if (srcB && !EncodedA[1]) { *wrRgbStream++ = TL[1]; coded |= 0x0002; }
+							if (srcC && !EncodedA[2]) { *wrRgbStream++ = TL[2]; coded |= 0x0004; }
 
 							// Top Right
-							if (srcA && !EncodedB[0]) { *wrRgbStream++ = TR[0]; /*printf("TR\n");*/ }
-							if (srcB && !EncodedB[1]) { *wrRgbStream++ = TR[1]; }
-							if (srcC && !EncodedB[2]) { *wrRgbStream++ = TR[2]; }
+							if (srcA && !EncodedB[0]) { *wrRgbStream++ = TR[0]; coded |= 0x0010; /*printf("TR\n");*/ }
+							if (srcB && !EncodedB[1]) { *wrRgbStream++ = TR[1]; coded |= 0x0020; }
+							if (srcC && !EncodedB[2]) { *wrRgbStream++ = TR[2]; coded |= 0x0040; }
 
 							// Bottom Left
-							if (srcA && !EncodedC[0]) { *wrRgbStream++ = BL[0]; /*printf("BL\n");*/ }
-							if (srcB && !EncodedC[1]) { *wrRgbStream++ = BL[1]; }
-							if (srcC && !EncodedC[2]) { *wrRgbStream++ = BL[2]; }
+							if (srcA && !EncodedC[0]) { *wrRgbStream++ = BL[0]; coded |= 0x0100; /*printf("BL\n");*/ }
+							if (srcB && !EncodedC[1]) { *wrRgbStream++ = BL[1]; coded |= 0x0200; }
+							if (srcC && !EncodedC[2]) { *wrRgbStream++ = BL[2]; coded |= 0x0400; }
 
 							// Bottom Right
-							if (srcA && !EncodedD[0]) { *wrRgbStream++ = BR[0]; /*printf("BR\n");*/ }
-							if (srcB && !EncodedD[1]) { *wrRgbStream++ = BR[1]; }
-							if (srcC && !EncodedD[2]) { *wrRgbStream++ = BR[2]; }
-
-							printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
-								x,y,
-								TL[0],TL[1],TL[2],
-								TR[0],TR[1],TR[2],
-								BL[0],BL[1],BL[2],
-								BR[0],BR[1],BR[2]
-							);
+							if (srcA && !EncodedD[0]) { *wrRgbStream++ = BR[0]; coded |= 0x1000; /*printf("BR\n");*/ }
+							if (srcB && !EncodedD[1]) { *wrRgbStream++ = BR[1]; coded |= 0x2000; }
+							if (srcC && !EncodedD[2]) { *wrRgbStream++ = BR[2]; coded |= 0x4000; }
+#if 1
+							if (srcA && srcB && srcC) {
+								// RGB
+								printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
+									x,y,
+									TL[0],TL[1],TL[2],
+									TR[0],TR[1],TR[2],
+									BL[0],BL[1],BL[2],
+									BR[0],BR[1],BR[2]
+								);
+							} else {
+								if (srcA) {
+									if (srcB) {
+										// RG_
+										printf("Coded %x Grad %i,%i [%i,%i][%i,%i]-[%i,%i][%i,%i]\n",
+											coded,
+											x,y,
+											TL[0],TL[1],
+											TR[0],TR[1],
+											BL[0],BL[1],
+											BR[0],BR[1]
+										);
+									} else {
+										if (srcC) {
+											// R_B
+											printf("Coded %x Grad %i,%i [%i,%i][%i,%i]-[%i,%i][%i,%i]\n",
+												coded,
+												x,y,
+												TL[0],TL[2],
+												TR[0],TR[2],
+												BL[0],BL[2],
+												BR[0],BR[2]
+											);
+										} else {
+											// R__
+											printf("Coded %x Grad %i,%i [%i][%i]-[%i][%i]\n",
+												coded,
+												x,y,
+												TL[0],
+												TR[0],
+												BL[0],
+												BR[0]
+											);
+										}
+									}
+								} else {
+									if (srcB) {
+										if (srcC) {
+											// _GB
+											printf("Coded %x Grad %i,%i [%i,%i][%i,%i]-[%i,%i][%i,%i]\n",
+												coded,
+												x,y,
+												TL[1],TL[2],
+												TR[1],TR[2],
+												BL[1],BL[2],
+												BR[1],BR[2]
+											);
+										} else {
+											// _G_
+											printf("Coded %x Grad %i,%i [%i][%i]-[%i][%i]\n",
+												coded,
+												x,y,
+												TL[1],
+												TR[1],
+												BL[1],
+												BR[1]
+											);
+										}
+									} else {
+										// ___
+										// __B
+										printf("Coded %x Grad %i,%i [%i][%i]-[%i][%i]\n",
+											coded,
+											x,y,
+											TL[2],
+											TR[2],
+											BL[2],
+											BR[2]
+										);
+									}
+								}
+							}
+#endif
 //							printf("[%i,%i] -> %i\n",x,y,(wrRgbStream - rgbStream) / 3);
 
 							/*
@@ -3398,83 +3662,103 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 						} // End Tile Accepted as gradient tile.
 					} // End Accept Tile for encoding test.
 					
+nextTile:
+
 					pos++;
 				}
 			}
 		}
 	}
 
-	HeaderGradientTile header;
 
-	/*
-	// Clip correctly the bitmap because of swizzling.
-	if (tileSizeY < 8) {
-		minY = ((minY     >> 3) << 3);		// Rounding 8 pixel Trunc.
-		maxY = (((maxY+7) >> 3) << 3);		// Rounding 8 pixel Ceil.
-	}
+	if (!evaluateLUT) {
+		HeaderGradientTile header;
 
-	// Align horizontally to speed up decoder.
-	minX = (minX     >> 3) << 3;
-	maxX = ((maxX+7) >> 3) << 3;
-	*/
+		/*
+		// Clip correctly the bitmap because of swizzling.
+		if (tileSizeY < 8) {
+			minY = ((minY     >> 3) << 3);		// Rounding 8 pixel Trunc.
+			maxY = (((maxY+7) >> 3) << 3);		// Rounding 8 pixel Ceil.
+		}
 
-	// Setup bounding box.
-	header.bbox.x	= minX;
-	header.bbox.y	= minY;
-	header.bbox.w	= maxX - minX;
-	header.bbox.h	= maxY - minX;
+		// Align horizontally to speed up decoder.
+		minX = (minX     >> 3) << 3;
+		maxX = ((maxX+7) >> 3) << 3;
+		*/
 
-	// Setup format.
-	header.format	= tileShiftX | (tileShiftY<<3);
-	header.plane	= PlaneBit;
+		// Setup bounding box.
+		header.bbox.x	= minX;
+		header.bbox.y	= minY;
+		header.bbox.w	= maxX - minX;
+		header.bbox.h	= maxY - minX;
 
-	unsigned char* pZStdStreamBitmap = new unsigned char[sizeBitmap*2];
-	int result = (int)ZSTD_compress(pZStdStreamBitmap, sizeBitmap*2, pFillBitMap,sizeBitmap, 18);
-	fileOutSize += result;
-	printf("Gradient Map %ix%i : %i\n",tileSizeX, tileSizeY,result);
+		// Setup format.
+		header.format	= tileShiftX | (tileShiftY<<3);
+		header.plane	= PlaneBit;
+
+		unsigned char* pZStdStreamBitmap = new unsigned char[sizeBitmap*2];
+		int result = (int)ZSTD_compress(pZStdStreamBitmap, sizeBitmap*2, pFillBitMap,sizeBitmap, 18);
+		fileOutSize += result;
+		printf("Gradient Map %ix%i : %i\n",tileSizeX, tileSizeY,result);
 	
-	header.streamBitmapSize = result;
+		header.streamBitmapSize = result;
 
-	// Compress the RGB stream.
-	int sizeDec = streamW * streamH * 3;
-	int uncompressRGBSize = wrRgbStream - rgbStream;
-	unsigned char* pZStdStreamRGB = new unsigned char[streamH * streamW * 3 * 2];
-	result = (int)ZSTD_compress(pZStdStreamRGB, sizeDec * 2, rgbStream, uncompressRGBSize, 18);
+		// Compress the RGB stream.
+		int sizeDec = streamW * streamH * 3;
+		int uncompressRGBSize = wrRgbStream - rgbStream;
+		unsigned char* pZStdStreamRGB = new unsigned char[streamH * streamW * 3 * 2];
+		result = (int)ZSTD_compress(pZStdStreamRGB, sizeDec * 2, rgbStream, uncompressRGBSize, 18);
 
-	header.streamRGBSize				= result;
-	header.streamRGBSizeUncompressed	= uncompressRGBSize;
+		header.streamRGBSize				= result;
+		header.streamRGBSizeUncompressed	= uncompressRGBSize;
 
-	fileOutSize += result;
-	printf("RGB Gradient Tile %ix%i : %i\n",tileSizeX, tileSizeY,result);
+		fileOutSize += result;
+		printf("RGB Gradient Tile %ix%i : %i\n",tileSizeX, tileSizeY,result);
 
-	HeaderBase headerTag;
-	headerTag.tag.tag8[0] = 'G';
-	headerTag.tag.tag8[1] = 'T';
-	headerTag.tag.tag8[2] = 'I';
-	headerTag.tag.tag8[3] = 'L';
+		HeaderBase headerTag;
+		headerTag.tag.tag8[0] = 'G';
+		headerTag.tag.tag8[1] = 'T';
+		headerTag.tag.tag8[2] = 'I';
+		headerTag.tag.tag8[3] = 'L';
 
-	int baseSize = (sizeof(HeaderGradientTile) + header.streamBitmapSize + header.streamRGBSize);
-	headerTag.length	  = ((baseSize + 3) >> 2) <<2;	// Round multiple of 4.
-	u8 pad[3] = { 0,0,0 };
-	int padding = headerTag.length - baseSize;
+		int baseSize = (sizeof(HeaderGradientTile) + header.streamBitmapSize + header.streamRGBSize);
+		headerTag.length	  = ((baseSize + 3) >> 2) <<2;	// Round multiple of 4.
 
-	MipmapHeader headerMip;
-	headerMip;
+		if (pStats) {
+			if (PlaneBit == 7) {
+				pStats->loc.sizeBlock3DGradient += headerTag.length; 
+			} else {
+				if ((PlaneBit==3) || (PlaneBit==6) || (PlaneBit==5)) {
+					pStats->loc.sizeBlock2DGradient	+= headerTag.length;
+				} else {
+					pStats->loc.sizeBlock1DGradient	+= headerTag.length;
+				}
+			}
+		}
 
-	fwrite(&headerTag, sizeof(HeaderBase)	, 1, outFile);
-	fwrite(&header,1,sizeof(HeaderGradientTile),outFile);
-	fwrite(pZStdStreamBitmap,1,header.streamBitmapSize,outFile);
-	fwrite(pZStdStreamRGB,1,header.streamRGBSize,outFile);
-	if (padding) { fwrite(pad, 1, padding, outFile); }
+		u8 pad[3] = { 0,0,0 };
+		int padding = headerTag.length - baseSize;
 
-	delete[] pZStdStreamRGB;
-	delete[] pZStdStreamBitmap;
+		MipmapHeader headerMip;
+		headerMip;
 
-	delete[] pFillBitMap;
+		fwrite(&headerTag, sizeof(HeaderBase)	, 1, outFile);
+		fwrite(&header,1,sizeof(HeaderGradientTile),outFile);
+		fwrite(pZStdStreamBitmap,1,header.streamBitmapSize,outFile);
+		fwrite(pZStdStreamRGB,1,header.streamRGBSize,outFile);
+		if (padding) { fwrite(pad, 1, padding, outFile); }
 
-	if (tileSizeX ==  4) { smoothMap->SaveAsPNG("NewSmoothMap4.png"); }
-	if (tileSizeX ==  8) { smoothMap->SaveAsPNG("NewSmoothMap8.png"); }
-	if (tileSizeX == 16) { smoothMap->SaveAsPNG("NewSmoothMap16.png"); }
+		delete[] pZStdStreamRGB;
+		delete[] pZStdStreamBitmap;
+
+		delete[] pFillBitMap;
+
+		if (dumpImage) {
+			if (tileSizeX ==  4) { smoothMap->SaveAsPNG("NewSmoothMap4.png"); }
+			if (tileSizeX ==  8) { smoothMap->SaveAsPNG("NewSmoothMap8.png"); }
+			if (tileSizeX == 16) { smoothMap->SaveAsPNG("NewSmoothMap16.png"); }
+		}
+	}
 
 	return TileDone;
 }
@@ -3787,6 +4071,147 @@ void BuildDistanceField(QuadSpline* list, int countList, int* target64x64) {
 */
 
 void EncoderContext::Create2DCorrelationPatterns() {
+}
+
+void reduceArray(u8* ptsXYZ_in, u8* ptsXYZ_out, u8 countIn, u8 countOut, bool is2D) {
+
+	int step = is2D ? 2 : 3;
+
+	int avg[3];
+	int cnt = 1;
+	int prevCurr = -1;
+
+	int idxD = 0;
+	for (int src = 0; src < countIn; src++) {
+		int idxS = src*step;
+		int curr = (src * countOut) / countIn;
+		if (curr != prevCurr) {
+			if (prevCurr != -1) {
+				ptsXYZ_out[idxD+0] = avg[0]/cnt;
+				ptsXYZ_out[idxD+1] = avg[1]/cnt;
+				if (!is2D) {
+					ptsXYZ_out[idxD+2] = avg[2]/cnt;
+				}
+				idxD += step;
+			}
+
+			avg[0] = ptsXYZ_in[idxS+0]; cnt = 1;
+			avg[1] = ptsXYZ_in[idxS+1]; 
+			if (!is2D) {
+				avg[2] = ptsXYZ_in[idxS+2];
+			}
+		} else {
+			avg[0] += ptsXYZ_in[idxS+0]; cnt++;
+			avg[1] += ptsXYZ_in[idxS+1]; 
+			if (!is2D) {
+				avg[2] += ptsXYZ_in[idxS+2];
+			}
+		}
+
+		prevCurr = curr;		
+	}
+
+	if (idxD < (countOut*step)) {
+		ptsXYZ_out[idxD+0] = avg[0]/cnt;
+		ptsXYZ_out[idxD+1] = avg[1]/cnt;
+		if (!is2D) {
+			ptsXYZ_out[idxD+2] = avg[2]/cnt;
+		}
+		idxD+=step;
+		if (idxD < (countOut*step)) {
+			printf("ERROR");
+		}
+	}
+}
+
+void EncoderContext::EvalCtxBase::Clear() {
+	memset(xFactor3Bit,0,sizeof(s16)*8);
+	memset(yFactor3Bit,0,sizeof(s16)*8);
+	memset(zFactor3Bit,0,sizeof(s16)*8);
+
+	memset(xFactor4Bit,0,sizeof(s16)*16);
+	memset(yFactor4Bit,0,sizeof(s16)*16);
+	memset(zFactor4Bit,0,sizeof(s16)*16);
+
+	memset(xFactor5Bit,0,sizeof(s16)*32);
+	memset(yFactor5Bit,0,sizeof(s16)*32);
+	memset(zFactor5Bit,0,sizeof(s16)*32);
+
+	memset(xFactor6Bit,0,sizeof(s16)*64);
+	memset(yFactor6Bit,0,sizeof(s16)*64);
+	memset(zFactor6Bit,0,sizeof(s16)*64);
+}
+
+void EncoderContext::EvalCtx3D::Set3DPointCloud(float acceptanceScore, u8* ptsXYZ, u8 ptsCount) {
+	acceptScore = acceptanceScore;
+
+	Clear();
+
+	// 1,2,4,8 (6,5,4,3 bits)
+	for (int pts =0; pts < ptsCount; pts++) {
+		int idxPts = pts * 3;
+		xFactor6Bit[pts] = (ptsXYZ[idxPts  ] / 63.0f) * FACTOR;
+		yFactor6Bit[pts] = (ptsXYZ[idxPts+1] / 63.0f) * FACTOR;
+		zFactor6Bit[pts] = (ptsXYZ[idxPts+2] / 63.0f) * FACTOR;
+	}
+
+	for (int pts =0; pts < ptsCount; pts += 2) {
+		int idxPts = pts * 3;
+		xFactor5Bit[pts>>1] = (ptsXYZ[idxPts  ] / 63.0f) * FACTOR;
+		yFactor5Bit[pts>>1] = (ptsXYZ[idxPts+1] / 63.0f) * FACTOR;
+		zFactor5Bit[pts>>1] = (ptsXYZ[idxPts+2] / 63.0f) * FACTOR;
+	}
+
+	for (int pts =0; pts < ptsCount; pts += 4) {
+		int idxPts = pts * 3;
+		xFactor4Bit[pts>>2] = (ptsXYZ[idxPts  ] / 63.0f) * FACTOR;
+		yFactor4Bit[pts>>2] = (ptsXYZ[idxPts+1] / 63.0f) * FACTOR;
+		zFactor4Bit[pts>>2] = (ptsXYZ[idxPts+2] / 63.0f) * FACTOR;
+	}
+
+	for (int pts =0; pts < ptsCount; pts += 8) {
+		int idxPts = pts * 3;
+		xFactor3Bit[pts>>3] = (ptsXYZ[idxPts  ] / 63.0f) * FACTOR;
+		yFactor3Bit[pts>>3] = (ptsXYZ[idxPts+1] / 63.0f) * FACTOR;
+		zFactor3Bit[pts>>3] = (ptsXYZ[idxPts+2] / 63.0f) * FACTOR;
+	}
+
+	for (int step=0; step < 4; step++) {
+		// Scan whole space.
+		for (int z=0; z < 64; z++) {
+			for (int y=0; y < 64; y++) {
+				for (int x=0; x < 64; x++) {
+
+					int minDist = 999999999;
+
+					// Find closest point.
+					for (int pts =0; pts < ptsCount; pts += (1<<step)) {
+						int idxPts = pts * 3;
+						int px = ptsXYZ[idxPts  ];
+						int py = ptsXYZ[idxPts+1];
+						int pz = ptsXYZ[idxPts+2];
+
+						int dx = x-px;
+						int dy = y-py;
+						int dz = z-pz;
+
+						int dist = (dx*dx) + (dy*dy) + (dz*dz);
+						if (dist < minDist) {
+							minDist = dist;
+							int idx3d = x + (y<<6) + (z<<12);
+							distanceField3D[idx3d] = dist;
+							switch (step) {
+							case 0: position6Bit3D[idx3d] = pts;    break;
+							case 1: position5Bit3D[idx3d] = pts>>1; break;
+							case 2: position4Bit3D[idx3d] = pts>>2; break;
+							case 3: position3Bit3D[idx3d] = pts>>3; break;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 void EncoderContext::EvalCtx3D::BuildTable3D(s16* xFactor, s16* yFactor, s16* zFactor, float* tFactor, float totalDistance, int elementCount) {
@@ -4751,10 +5176,10 @@ EncoderContext::Mode EncoderContext::computeValues2D(int planeMode, int tileSize
 				//
 				// DIFF is over the range... Be sure you are on a 0..255 or 0..127 range.
 				//
-				if (lDiff6Bit > 5) { reject6Bit = true; }
-				if (lDiff5Bit > 5) { reject5Bit = true; }
-				if (lDiff4Bit > 7) { reject4Bit = true; }
-				if (lDiff3Bit > 7) { reject3Bit = true; }
+				if (lDiff6Bit > 6) { reject6Bit = true; }
+				if (lDiff5Bit > 6) { reject5Bit = true; }
+				if (lDiff4Bit > 6) { reject4Bit = true; }
+				if (lDiff3Bit > 6) { reject3Bit = true; }
 	//			if (lDiff2Bit > 7) { reject2Bit = true; }
 
 				ev.value6Bit[streamIdx] = idx6Bit;
@@ -4777,6 +5202,8 @@ EncoderContext::Mode EncoderContext::computeValues2D(int planeMode, int tileSize
 	if (!reject6Bit || ((absErr6Bit/64.0f) < 0.0f)) { return Mode::ENCODE_6BIT; }
 	return Mode::SKIP_TOO_LOSSY;
 }
+
+int histo3D[64*64*64];
 
 EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSizeY, u8* mask, int mode, Image* input, int px,int py, BoundingBox3D bb, EvalCtx3D& ev, int& minDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/) {
 	bool outP;
@@ -4812,15 +5239,33 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 		tileXAxisCount = 2;
 	}
 
+	int lDiff6Bit;
+	int lDiff5Bit;
+	int lDiff4Bit;
+	int lDiff3Bit;
+
+	int wrongPixel6 = 0;
+	int wrongPixel5 = 0;
+	int wrongPixel4 = 0;
+	int wrongPixel3 = 0;
+
+	bool log = false;
+
+	int reject = 0;
+
 	for (int xa=0; xa < tileXAxisCount; xa++) {
 		for (int y=0; y < tileSizeY; y++) {
 			for (int x=0; x < tileSizeX; x++) {
 				int idxPix = x+ (xa<<3)+ y*(tileSizeX<<(tileXAxisCount-1)); // Always a 16 pixel wide if using 2x 8x8 tile wide.
 
 
-				if (mask[idxPix]) { continue; }
+				if (mask[idxPix] == 255) { continue; }
 
 				int rgb[3]; input->GetPixel(px + x + (xa<<3), py + y,rgb, outP);
+
+				if (useYCoCg) {
+					RGBtoYCoCgPos(rgb[0],rgb[1],rgb[2],rgb[0],rgb[1],rgb[2]);
+				}
 
 				// Find coordinate in normalized box.
 				// ---------------------------------------------
@@ -4855,8 +5300,8 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 				int idx6Bit = ev.GetValue6Bit3D((int)mx,(int)my,(int)mz);
 				int idx5Bit = ev.GetValue5Bit3D((int)mx,(int)my,(int)mz);
 				int idx4Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
-				int idx3Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
-				int idx2Bit = ev.GetValue4Bit3D((int)mx,(int)my,(int)mz);
+				int idx3Bit = ev.GetValue3Bit3D((int)mx,(int)my,(int)mz);
+//				int idx2Bit = ev.GetValue2Bit3D((int)mx,(int)my,(int)mz);
 
 				// Find Decompressed values for mapping (Verification without decoder)
 				// -------------------------------------------
@@ -4945,6 +5390,15 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 				int diff3BitB	= abs(b3Bit - rgb[2]);
 	//			int diff2BitB	= abs(b2Bit - rgb[2]);
 
+				if (log && ((x+(xa<<3))==11) && (y==0)) {
+					printf("x:%i,y:%i -> R(%i)[%i,%i,%i,%i] G(%i)[%i,%i,%i,%i] B(%i)[%i,%i,%i,%i]\n",
+						x,y,
+						rgb[0],diff6BitR,diff5BitR,diff4BitR,diff3BitR,
+						rgb[1],diff6BitG,diff5BitG,diff4BitG,diff3BitG,
+						rgb[2],diff6BitB,diff5BitB,diff4BitB,diff3BitB
+					);
+				}
+
 				assert(idxPix < 128);
 
 				int idxPixRGB = idxPix * 3;
@@ -4992,10 +5446,22 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 				//
 				// DIFF is over the range... Be sure you are on a 0..255 or 0..127 range.
 				//
-				if (lDiff6Bit > 5) { reject6Bit = true; }
-				if (lDiff5Bit > 5) { reject5Bit = true; }
-				if (lDiff4Bit > 7) { reject4Bit = true; }
-				if (lDiff3Bit > 7) { reject3Bit = true; }
+				if (lDiff6Bit > 5) {
+					wrongPixel6++;
+					if (wrongPixel6 > 3) { reject |= 1<<0; }
+				}
+				if (lDiff5Bit > 5) {
+					wrongPixel5++;
+					if (wrongPixel5 > 3) { reject |= 1<<1; }
+				}
+				if (lDiff4Bit > 5) {
+					wrongPixel4++;
+					if (wrongPixel4 > 3) { reject |= 1<<2; }
+				}
+				if (lDiff3Bit > 5) {
+					wrongPixel3++;
+					if (wrongPixel3 > 3) { reject |= 1<<3; }
+				}
 	//			if (lDiff2Bit > 7) { reject2Bit = true; }
 
 				ev.value6Bit[streamIdx] = idx6Bit;
@@ -5007,16 +5473,25 @@ EncoderContext::Mode EncoderContext::computeValues3D(int tileSizeX, int tileSize
 
 	//			printf("Co[%i] -> %i, %i, %i   Cg[%i] -> %i, %i, %i\n",CoV,Co5Bit,Co4Bit,Co3Bit,CgV,Cg5Bit,Cg4Bit,Cg3Bit);
 			}
+
+			if (reject == 0xF) { // All wrong and reject... bye bye.
+				// early exit.
+				goto exit;
+			}
 		}
 	}
 
 //	if (!reject2Bit || ((absErr2Bit/64.0f) < 0.0f)) { minDiff = absErr2Bit; return Mode::ENCODE_2BIT; }
-	if (!reject3Bit || ((absErr3Bit/64.0f) < 0.0f)) { minDiff = absErr3Bit; return Mode::ENCODE_3BIT; }
-	if (!reject4Bit || ((absErr4Bit/64.0f) < 0.0f)) { minDiff = absErr4Bit; return Mode::ENCODE_4BIT; }
-	if (!reject5Bit || ((absErr5Bit/64.0f) < 0.0f)) { minDiff = absErr5Bit; return Mode::ENCODE_5BIT; }
-	minDiff = absErr6Bit;
-	if (!reject6Bit || ((absErr6Bit/64.0f) < 0.0f)) { return Mode::ENCODE_6BIT; }
-	return Mode::SKIP_TOO_LOSSY;
+	if ((reject & 1) == 0) { minDiff = absErr6Bit; res = Mode::ENCODE_6BIT; }
+	if ((reject & 2) == 0) { minDiff = absErr5Bit; res = Mode::ENCODE_5BIT; }
+	if ((reject & 4) == 0) { minDiff = absErr4Bit; res = Mode::ENCODE_4BIT; }
+	if ((reject & 8) == 0) { minDiff = absErr3Bit; res = Mode::ENCODE_3BIT; }
+	
+	if (log) {
+		printf("%s\n", (res==SKIP_TOO_LOSSY) ? "Reject" : "Accept");
+	}
+exit:
+	return res;
 }
 
 void EncoderContext::AnalyzeColorCount(Image* input, int tileSize) {
@@ -5057,7 +5532,7 @@ void EncoderContext::AnalyzeColorCount(Image* input, int tileSize) {
 				}
 			}
 
-			printf("Tile %i => %i\n",tileCnt,unique);
+//			printf("Tile %i => %i\n",tileCnt,unique);
 
 			if (unique < 12) {
 				if (unique <= 8) {
@@ -5103,7 +5578,69 @@ void EncoderContext::AnalyzeColorCount(Image* input, int tileSize) {
 		}
 	}
 
-	original->SavePNG("PALETTE.png",NULL);
+	if (dumpImage) {
+		original->SavePNG("PALETTE.png",NULL);
+	}
+}
+
+u8* createOrderTable(int w, int h,int mode) {
+	// Can not be more than 16x16.
+	int size = w*h;
+	u8* res = new u8[size];
+	int x = 0;
+	int y = 0;
+	int a,b,c;
+	int state = 0;
+	;
+	int dir = 1;
+	switch (mode) {
+	case 0:
+		x=0;y=0;
+		break;
+	case 1:
+		x=0;y=0;
+		break;
+	default:
+		break;
+	}
+
+	int count = 0;
+	while (count != size) {
+		switch (mode) {
+		case 0:
+			switch (state) {
+			case 0:
+				if (x<w) {
+					x++;
+					state = 1;
+				} else {
+					if (y < h) {
+						y++;
+						state = 1;
+					} else {
+						// end ?
+					}
+				}
+			}
+			break;
+		case 1:
+			if (dir == 1) {
+				x--;
+				y++;
+			} else {
+				x++;
+				y--;
+			}
+			break;
+		default:
+			break;
+		}
+
+		res[count] = (y<<4) | x;
+		count++;
+	}
+
+	return NULL;
 }
 
 void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShiftX, int tileShiftY) {
@@ -5169,10 +5706,11 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 						break; 
 					}
 
-					u8 maskTile[128];
+					u8 maskTile[128]; // 0..127 : Index of pixel, 255 : skip pixel.
 					int pixelsInTile;
 					// For all tiles.
-					bb3 = buildBBox3D(input,mapSmoothTile,x,y,tileSizeX,tileSizeY,pixelsInTile,maskTile);
+					bool pixelInside;
+					bb3 = buildBBox3D(input,useYCoCg,mapSmoothTile,x,y,tileSizeX,tileSizeY,pixelsInTile,maskTile,pixelInside);
 
 					// Export normalized values...
 					int dX = bb3.x1 - bb3.x0;
@@ -5190,7 +5728,7 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 					// 1D encoded in 3D -> NO
 
 					// Can we check the current tile for encoding ???
-					if (accept && pixelsInTile != 0) {
+					if (accept && pixelsInTile != 0 && pixelInside) {
 						bool isOutside;
 						bool isIsFirst = true;
 
@@ -5204,6 +5742,19 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 							correlationPattern3D[e].EvaluateStart3D();
 						}
 
+						FILE* captureFile = NULL;
+						u8 captureCount;
+						u8 captureR[128];
+						u8 captureG[128];
+						u8 captureB[128];
+
+						if (isCaptureMode3D && (pixelsInTile>=64) && (!evaluateLUT)) { // For now limit to full 8x8 tile only.
+							captureCount = 0;
+							char buffer[2000];
+							sprintf(buffer,"tile3D\\tileMap_%s_%i-%i.lut",originalName,x,y);
+							captureFile  = fopen(buffer,"wb");
+						}
+
 						// Per Pixel test...
 						for (int ty=0; ty < tileSizeY; ty++) {
 							for (int tx=0; tx < tileSizeX; tx++) {
@@ -5211,14 +5762,14 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 								int idx = tx + (ty*tileSizeX);
 
 								// Ignore pixel already processed.
-								if (maskTile[idx]) { continue; }
+								if (maskTile[idx] == 255) { continue; }
 
 								int rgb[3];
 								input->GetPixel(x+tx,y+ty,rgb,isOutSide);
 
-								rgb[0] >>= 0;
-								rgb[1] >>= 0;
-								rgb[2] >>= 0;
+								if (useYCoCg) {
+									RGBtoYCoCgPos(rgb[0],rgb[1],rgb[2],rgb[0],rgb[1],rgb[2]);
+								}
 
 								// Origin.
 								int r = rgb[0] - bb3.x0;
@@ -5242,6 +5793,22 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 								kassert(ig64 >= 0 && ig64 < 64);
 								kassert(ib64 >= 0 && ib64 < 64);
 
+								static bool first = true;
+								if (first) {
+									first = false;
+									memset(histo3D,0,sizeof(int)*64*64*64);
+								}
+
+								// printf("%i,%i,%i\n",ir64,ig64,ib64);
+								histo3D[(int)ir64 + (((int)ig64)<<6) + (((int)ib64)<<12)]++;	
+
+								if (captureFile) {
+									captureR[captureCount] = ir64;
+									captureG[captureCount] = ig64;
+									captureB[captureCount] = ib64;
+									captureCount++;
+								}
+
 	//							printf("%i,%i,%i,%i,%i,%i\n",ir64,ig64,ib64,rgb[0],rgb[1],rgb[2]);
 
 								for (int e=0;e<correlationPatternCount3D; e++) {
@@ -5250,8 +5817,13 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 							}
 						}
 
-						char buffer[2000];
-						sprintf(buffer,"tiles\\tileMap_%i_(@%i_%i@%i_%i@%i_%i).png",pos,bb3.x0,bb3.x1,bb3.y0,bb3.y1,bb3.z0,bb3.z1);
+						if (captureFile) {
+							fwrite(&captureCount,sizeof(u8),1,captureFile);
+							fwrite(captureR,sizeof(u8),captureCount,captureFile);
+							fwrite(captureG,sizeof(u8),captureCount,captureFile);
+							fwrite(captureB,sizeof(u8),captureCount,captureFile);
+							fclose(captureFile);
+						}
 
 						EvalCtx3D* evMin = &correlationPattern3D[0];
 						float minScore = 999999999.0f;
@@ -5310,7 +5882,10 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 								foundM48 = mode48;
 								diffSum  = diffSumL;
 								bestSize = fileCost;
-
+								if (evaluateLUT) {
+									// Or FAST Encoder...
+									break; // Just quit on first valid one, not BEST ONE.
+								}
 								/*
 								// Render With decoded data
 								for (int ty=0; ty < tileSizeY; ty++) {
@@ -5332,21 +5907,27 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 						if (found) {
 							matchTile++;
 
+							/*
 							printf("Tile[%i,%i] PixelCnt:%i [%i Bit,Mode:%i,Pattern:%i] (RGB:[%i,%i,%i]->[%i,%i,%i])\n", 
 								x,y,pixelsInTile,   
 								bitMode+3,foundM48,foundE, 
 									bb3.x0,bb3.y0,bb3.z0,
 									bb3.x1,bb3.y1,bb3.z1
 							);
+							*/
 
 							// Color 1
-							corr3D_colorStream[streamColorCnt++] = bb3.x0;
-							corr3D_colorStream[streamColorCnt++] = bb3.y0;
-							corr3D_colorStream[streamColorCnt++] = bb3.z0;
+							int comprCol = 0;
+
+							bb3 = roundNBit(bb3,comprCol);
+
+							corr3D_colorStream[streamColorCnt++] = bb3.x0 >> comprCol;
+							corr3D_colorStream[streamColorCnt++] = bb3.y0 >> comprCol;
+							corr3D_colorStream[streamColorCnt++] = bb3.z0 >> comprCol;
 							// Color 2
-							corr3D_colorStream[streamColorCnt++] = bb3.x1;
-							corr3D_colorStream[streamColorCnt++] = bb3.y1;
-							corr3D_colorStream[streamColorCnt++] = bb3.z1;
+							corr3D_colorStream[streamColorCnt++] = bb3.x1 >> comprCol;
+							corr3D_colorStream[streamColorCnt++] = bb3.y1 >> comprCol;
+							corr3D_colorStream[streamColorCnt++] = bb3.z1 >> comprCol;
 
 							// Bitmap stream...
 							if (tileSizeX == 8) {
@@ -5370,6 +5951,47 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 
 							corr3D_tileStreamTileType[streamTypeCnt++] = foundM48 | (bitMode<<(6+8)) | (foundE<<6); // Bit [0..5] : 48 3D Pattern, Bit [6..13] : 256 Pattern, Bit [14..15] : 3/4/5/6 Bit Tile.
 							
+							if (pStats && (testedLUT == foundE)) {
+								pStats->loc.pixelCount3DLUTTotal += pixelsInTile;
+								pStats->loc.histogram3D[foundE]++;
+								if (tileSizeX == 16 && tileSizeY == 8) {
+										pStats->loc.pixelCount3D_Lut_16_8 += pixelsInTile;
+								}
+								if (tileSizeX == 8 && tileSizeY == 16) {
+									pStats->loc.pixelCount3D_Lut_8_16 += pixelsInTile;
+								}
+								if (tileSizeX == 8 && tileSizeY == 8) {
+									pStats->loc.pixelCount3D_Lut_8_8 += pixelsInTile;
+								}
+								if (tileSizeX == 4 && tileSizeY == 8) {
+									pStats->loc.pixelCount3D_Lut_4_8 += pixelsInTile;
+								}
+								if (tileSizeX == 8 && tileSizeY == 4) {
+									pStats->loc.pixelCount3D_Lut_8_4 += pixelsInTile;
+								}
+								if (tileSizeX == 4 && tileSizeY == 4) {
+									pStats->loc.pixelCount3D_Lut_4_4 += pixelsInTile;
+								}
+
+								switch (bitMode) {
+								case EncoderContext::ENCODE_3BIT:
+									pStats->loc.pixelCount3D_3Bit += pixelsInTile;
+									break;
+								case EncoderContext::ENCODE_4BIT:
+									pStats->loc.pixelCount3D_4Bit += pixelsInTile;
+									break;
+								case EncoderContext::ENCODE_5BIT:
+									pStats->loc.pixelCount3D_5Bit += pixelsInTile;
+									break;
+								case EncoderContext::ENCODE_6BIT:
+									pStats->loc.pixelCount3D_6Bit += pixelsInTile;
+									break;
+								default:
+									break;
+								}
+
+								pStats->loc.tile3DCount++;
+							}
 #if 1
 							u8* bitSrc = NULL;
 							s16* tblR;
@@ -5425,8 +6047,14 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 							}
 
 							// Render compressed block.
-							{
+							int lSizeX = (tileSizeX > 8) ? 8 : tileSizeX;
+							int countX = (tileSizeX > 8) ? 2 : 1;
+							int vx = 0;
+							int pixelId = 0;
+
+							if (!evaluateLUT) {
 								int dt[3];
+
 								dt[0] = bb3.x1 - bb3.x0;
 								dt[1] = bb3.y1 - bb3.y0;
 								dt[2] = bb3.z1 - bb3.z0;
@@ -5455,6 +6083,7 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 									int rl   = (foundM48 & 1) ? (FACTOR - lutX[ssize]) : lutX[ssize];
 									int gl   = (foundM48 & 2) ? (FACTOR - lutY[ssize]) : lutY[ssize];
 									int bl   = (foundM48 & 4) ? (FACTOR - lutZ[ssize]) : lutZ[ssize];
+
 									tbl[ssize*3    ] = rl;
 									tbl[(ssize*3)+1] = gl;
 									tbl[(ssize*3)+2] = bl;
@@ -5463,15 +6092,13 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 
 								u8* src = bitSrc;
 
-								int lSizeX = (tileSizeX > 8) ? 8 : tileSizeX;
-								int countX = (tileSizeX > 8) ? 2 : 1;
-								int vx = 0;
-								int pixelId = 0;
+								printf("Tile:%i [%i,%i,%i]->[%i,%i,%i]\n",corr3D_tileStreamTileType[streamTypeCnt-1],(int)bb3.x0,(int)bb3.y0,(int)bb3.z0,(int)bb3.x1,(int)bb3.y1,(int)bb3.z1);
+
 								for (; vx < countX; vx++) {
 									for (int ty=0; ty < tileSizeY; ty++) {
 										for (int tx=0; tx < lSizeX; tx++) {
 											int idx = (tx + (vx*8) +(ty*tileSizeX));
-											if (maskTile[idx]) { continue; }
+											if (maskTile[idx] == 255) { continue; }
 
 											u8 idxTbl = (*src++) * 3;
 
@@ -5489,10 +6116,27 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 											int g = bb3.y0 + ((dt[1]*tbl[idxTbl+1]) / FACTOR);
 											int b = bb3.z0 + ((dt[2]*tbl[idxTbl+2]) / FACTOR);
 
-											// printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",tx+x+(vx*8),ty+y,pixelId,idxTbl,tbl[idxTbl  ],tbl[idxTbl+1],tbl[idxTbl+2]);
+											if (useYCoCg) {
+												YCoCgPostoRGB(r,g,b,r,g,b);
+											}
+
+											printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",x,y,pixelId,idxTbl,tbl[idxTbl  ],tbl[idxTbl+1],tbl[idxTbl+2]);
 											pixelId++;
 
 											output->SetPixel(tx+x+(vx*8),ty+y,r,g,b);
+										}
+									}
+								}
+							} else {
+								if (testedLUT == foundE) {
+									for (; vx < countX; vx++) {
+										for (int ty=0; ty < tileSizeY; ty++) {
+											for (int tx=0; tx < lSizeX; tx++) {
+												int idx = (tx + (vx*8) +(ty*tileSizeX));
+												if (maskTile[idx] == 255) { continue; }
+
+												evaluateMap->SetPixel(tx+x+(vx*8),ty+y,255);
+											}
 										}
 									}
 								}
@@ -5504,9 +6148,11 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 							//
 							// Remove Tile from usable tiles...
 							//
-							for (int ty=0; ty < tileSizeY; ty++) {
-								for (int tx=0; tx < tileSizeX; tx++) {
-									mapSmoothTile->SetPixel(x + tx, y + ty, 255,255,255);
+							if (!evaluateLUT) {
+								for (int ty=0; ty < tileSizeY; ty++) {
+									for (int tx=0; tx < tileSizeX; tx++) {
+										mapSmoothTile->SetPixel(x + tx, y + ty, 255,255,255);
+									}
 								}
 							}
 						} else {
@@ -5591,16 +6237,20 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 					u8 maskTile[128];
 					int pixelsInTile;
 					// For all tiles.
+					memset(maskTile,0,128);
 					bb2 = buildBBox2D(planeMode,input,mapSmoothTile,x,y,tileSizeX,tileSizeY,pixelsInTile,maskTile);
 
 					// Export normalized values...
 					int dX = bb2.w - bb2.x;
 					int dY = bb2.h - bb2.y;
 
+					bool accept = ((dX != 0) && ((dY != 0)))	// X Flat Planar, Y not.
+								;
+					/*
 					bool accept = ((dX == 0) && ((dY != 0)))	// X Flat Planar, Y not.
 								| ((dY == 0) && ((dX != 0)))	// Y Flat Planar, X not.
 								;
-
+					*/
 					// 3D encoded in 3D -> OK
 					// 2D encoded in 3D -> OK = Equivalent 1 Planar + 2 Correlated
 					// 1D encoded in 3D -> NO
@@ -5617,6 +6267,23 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 
 						for (int e=0;e<correlationPatternCount2D; e++) {
 							correlationPattern2D[e].EvaluateStart2D();
+						}
+
+						FILE* captureFile = NULL;
+						u8 captureCount;
+						u8 captureA[128];
+						u8 captureB[128];
+
+						u8 shape[64*64*3];
+
+						char buffer[2000];
+						static int tileCountID = 0;
+
+						if (isCaptureMode2D && (pixelsInTile >= 32)) { // For now limit to full 8x8 tile only.
+							captureCount = 0;
+							sprintf(buffer,"tile2D\\tileMap%i.lut",tileCountID);
+							captureFile  = fopen(buffer,"wb");
+							memset(shape,0,3*64*64);
 						}
 
 						// Per Pixel test...
@@ -5666,6 +6333,12 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 								kassert(ia64 >= 0 && ia64 < 64);
 								kassert(ib64 >= 0 && ib64 < 64);
 
+								if (captureFile) {
+									captureA[captureCount] = ia64;
+									captureB[captureCount] = ib64;
+									captureCount++;
+								}
+
 	//							printf("%i,%i,%i,%i,%i,%i\n",ir64,ig64,ib64,rgb[0],rgb[1],rgb[2]);
 
 								for (int e=0;e<correlationPatternCount2D; e++) {
@@ -5674,8 +6347,26 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 							}
 						}
 
-						char buffer[2000];
-						sprintf(buffer,"tiles\\tileMap_%i_(@%i_%i@%i_%i).png",pos,bb2.x,bb2.w,bb2.y,bb2.h);
+
+						if (captureFile) {
+							fwrite(&captureCount,sizeof(u8),1,captureFile);
+							fwrite(captureA,sizeof(u8),captureCount,captureFile);
+							fwrite(captureB,sizeof(u8),captureCount,captureFile);
+							fclose(captureFile);
+	
+							char buffer[2000];
+							sprintf(buffer,"tile2DImg\\tileMap%i.lut.png",tileCountID);
+
+							for (int n=0; n < captureCount; n++) {
+								int idx = (captureA[n] + (captureB[n]*64))*3;
+								shape[idx  ] = 255;
+								shape[idx+1] = 255;
+								shape[idx+2] = 255;
+							}
+
+							stbi_write_png(buffer,64,64,3,shape,64*3);
+							tileCountID++;
+						}
 
 						EvalCtx2D* evMin = &correlationPattern2D[0];
 						float minScore = 999999999.0f;
@@ -5756,14 +6447,6 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 						//
 						if (found) {
 							matchTile++;
-
-							printf("Tile[%i,%i] PixelCnt:%i [%i Bit,Mode:%i,Pattern:%i] (PlaneAB:[%i,%i]->[%i,%i])\n", 
-								x,y,pixelsInTile,   
-								bitMode+3,foundM8,foundE, 
-									bb2.x,bb2.y,
-									bb2.w,bb2.h
-							);
-
 							// Color 1
 							corr3D_colorStream[streamColorCnt++] = bb2.x;
 							corr3D_colorStream[streamColorCnt++] = bb2.y;
@@ -5793,6 +6476,47 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 
 							corr3D_tileStreamTileType[streamTypeCnt++] = foundM8 | (bitMode<<(6+8)) | (foundE<<3); // Bit [0..2] : 8x 2D Pattern, Bit [3..13] : 2048 Patterns, Bit [14..15] : 3/4/5/6 Bit Tile.
 							
+							if (pStats && (testedLUT == foundE)) {
+								pStats->loc.pixelCount2DLUTTotal += pixelsInTile;
+								pStats->loc.histogram2D[foundE]++;
+								if (tileSizeX == 8 && tileSizeY == 8) {
+									pStats->loc.pixelCount2D_Lut_8_8 += pixelsInTile;
+								}
+								if (tileSizeX == 4 && tileSizeY == 4) {
+									pStats->loc.pixelCount2D_Lut_4_4 += pixelsInTile;
+								}
+
+								switch (bitMode) {
+								case EncoderContext::ENCODE_3BIT:
+									pStats->loc.pixelCount2D_3Bit += pixelsInTile;
+									break;
+								case EncoderContext::ENCODE_4BIT:
+									pStats->loc.pixelCount2D_4Bit += pixelsInTile;
+									break;
+								case EncoderContext::ENCODE_5BIT:
+									pStats->loc.pixelCount2D_5Bit += pixelsInTile;
+									break;
+								case EncoderContext::ENCODE_6BIT:
+									pStats->loc.pixelCount2D_6Bit += pixelsInTile;
+									break;
+								default:
+									break;
+								}
+
+								pStats->loc.tile3DCount++;
+							}
+#if 1
+							printf("Tile:%i [%i,%i]->[%i,%i]\n",corr3D_tileStreamTileType[streamTypeCnt-1],(int)bb2.x,(int)bb2.y,(int)bb2.w,(int)bb2.h);
+
+							/*
+							printf("Tile[%i,%i] PixelCnt:%i [%i Bit,Mode:%i,Pattern:%i] (PlaneAB:[%i,%i]->[%i,%i])\n", 
+								x,y,pixelsInTile,   
+								bitMode+3,foundM8,foundE, 
+									bb2.x,bb2.y,
+									bb2.w,bb2.h
+							);*/
+#endif
+
 #if 1
 							u8* bitSrc = NULL;
 							s16* tblA;
@@ -5876,52 +6600,54 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 									// printf("[%i] => %i,%i,%i\n",ssize,rl,gl,bl);
 								}
 
-								u8* src = bitSrc;
+								if (!evaluateLUT2D) {
+									u8* src = bitSrc;
 
-								int lSizeX = (tileSizeX > 8) ? 8 : tileSizeX;
-								int countX = (tileSizeX > 8) ? 2 : 1;
-								int vx = 0;
-								int pixelId = 0;
-								for (; vx < countX; vx++) {
-									for (int ty=0; ty < tileSizeY; ty++) {
-										for (int tx=0; tx < lSizeX; tx++) {
-											int idx = (tx + (vx*8) +(ty*tileSizeX));
-											if (maskTile[idx]) { continue; }
+									int lSizeX = (tileSizeX > 8) ? 8 : tileSizeX;
+									int countX = (tileSizeX > 8) ? 2 : 1;
+									int vx = 0;
+									int pixelId = 0;
+									for (; vx < countX; vx++) {
+										for (int ty=0; ty < tileSizeY; ty++) {
+											for (int tx=0; tx < lSizeX; tx++) {
+												int idx = (tx + (vx*8) +(ty*tileSizeX));
+												if (maskTile[idx]) { continue; }
 
-											u8 idxTbl = (*src++) * 2;
+												u8 idxTbl = (*src++) * 2;
 
-											/*
-											u8 idxR   = (foundM48 & 1) ? (maxIDX - idxTbl) : idxTbl;
-											u8 idxG   = (foundM48 & 2) ? (maxIDX - idxTbl) : idxTbl;
-											u8 idxB   = (foundM48 & 4) ? (maxIDX - idxTbl) : idxTbl;
+												/*
+												u8 idxR   = (foundM48 & 1) ? (maxIDX - idxTbl) : idxTbl;
+												u8 idxG   = (foundM48 & 2) ? (maxIDX - idxTbl) : idxTbl;
+												u8 idxB   = (foundM48 & 4) ? (maxIDX - idxTbl) : idxTbl;
 
-											u8 r = bb3.x0 + ((dt[0]*tblR[idxR]) >> 7);
-											u8 g = bb3.y0 + ((dt[1]*tblG[idxG]) >> 7);
-											u8 b = bb3.z0 + ((dt[2]*tblB[idxB]) >> 7);
-											*/
+												u8 r = bb3.x0 + ((dt[0]*tblR[idxR]) >> 7);
+												u8 g = bb3.y0 + ((dt[1]*tblG[idxG]) >> 7);
+												u8 b = bb3.z0 + ((dt[2]*tblB[idxB]) >> 7);
+												*/
 
-											int a = bb2.x + ((dt[0]*tbl[idxTbl  ]) / FACTOR);
-											int b = bb2.y + ((dt[1]*tbl[idxTbl+1]) / FACTOR);
+												int a = bb2.x + ((dt[0]*tbl[idxTbl  ]) / FACTOR);
+												int b = bb2.y + ((dt[1]*tbl[idxTbl+1]) / FACTOR);
 
-											// printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",tx+x+(vx*8),ty+y,pixelId,idxTbl,tbl[idxTbl  ],tbl[idxTbl+1],tbl[idxTbl+2]);
-											pixelId++;
+												printf("%i,%i(%i) -> [%i] -> [%i,%i]\n",x,y,pixelId,idxTbl,tbl[idxTbl  ],tbl[idxTbl+1]);
+												pixelId++;
 
-											int targetX = tx+x+(vx*8);
-											int targetY = ty+y;
+												int targetX = tx+x+(vx*8);
+												int targetY = ty+y;
 
-											switch (planeMode) {
-											case Mode_RG:
-												output->GetPlane(0)->SetPixel(targetX,targetY,a);
-												output->GetPlane(1)->SetPixel(targetX,targetY,b);
-												break;
-											case Mode_GB:
-												output->GetPlane(1)->SetPixel(targetX,targetY,a);
-												output->GetPlane(2)->SetPixel(targetX,targetY,b);
-												break;
-											case Mode_RB:
-												output->GetPlane(0)->SetPixel(targetX,targetY,a);
-												output->GetPlane(2)->SetPixel(targetX,targetY,b);
-												break;
+												switch (planeMode) {
+												case Mode_RG:
+													output->GetPlane(0)->SetPixel(targetX,targetY,a);
+													output->GetPlane(1)->SetPixel(targetX,targetY,b);
+													break;
+												case Mode_GB:
+													output->GetPlane(1)->SetPixel(targetX,targetY,a);
+													output->GetPlane(2)->SetPixel(targetX,targetY,b);
+													break;
+												case Mode_RB:
+													output->GetPlane(0)->SetPixel(targetX,targetY,a);
+													output->GetPlane(2)->SetPixel(targetX,targetY,b);
+													break;
+												}
 											}
 										}
 									}
@@ -5934,24 +6660,26 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 							//
 							// Remove Tile from usable tiles...
 							//
-							for (int ty=0; ty < tileSizeY; ty++) {
-								for (int tx=0; tx < tileSizeX; tx++) {
-									int targetX = x + tx;
-									int targetY = y + ty;
+							if (!evaluateLUT2D) {
+								for (int ty=0; ty < tileSizeY; ty++) {
+									for (int tx=0; tx < tileSizeX; tx++) {
+										int targetX = x + tx;
+										int targetY = y + ty;
 									
-									switch (planeMode) {
-									case Mode_RG:
-										mapSmoothTile->GetPlane(0)->SetPixel(targetX,targetY,255);
-										mapSmoothTile->GetPlane(1)->SetPixel(targetX,targetY,255);
-										break;
-									case Mode_GB:
-										mapSmoothTile->GetPlane(1)->SetPixel(targetX,targetY,255);
-										mapSmoothTile->GetPlane(2)->SetPixel(targetX,targetY,255);
-										break;
-									case Mode_RB:
-										mapSmoothTile->GetPlane(0)->SetPixel(targetX,targetY,255);
-										mapSmoothTile->GetPlane(2)->SetPixel(targetX,targetY,255);
-										break;
+										switch (planeMode) {
+										case Mode_RG:
+											mapSmoothTile->GetPlane(0)->SetPixel(targetX,targetY,255);
+											mapSmoothTile->GetPlane(1)->SetPixel(targetX,targetY,255);
+											break;
+										case Mode_GB:
+											mapSmoothTile->GetPlane(1)->SetPixel(targetX,targetY,255);
+											mapSmoothTile->GetPlane(2)->SetPixel(targetX,targetY,255);
+											break;
+										case Mode_RB:
+											mapSmoothTile->GetPlane(0)->SetPixel(targetX,targetY,255);
+											mapSmoothTile->GetPlane(2)->SetPixel(targetX,targetY,255);
+											break;
+										}
 									}
 								}
 							}
@@ -6027,7 +6755,7 @@ void EncoderContext::StartCorrelationSearch(bool is3D) {
 
 #include "../external/zstd/zdict.h"
 
-void EncoderContext::EndCorrelationSearch(bool is3D) {
+void EncoderContext::EndCorrelationSearch(bool is3D, u8 component) {
 	int wi   = original->GetWidth();
 	int hi	= original->GetHeight();
 
@@ -6045,75 +6773,118 @@ void EncoderContext::EndCorrelationSearch(bool is3D) {
 
 	size_t result;
 
-	u8* ZStdT16_8Map	= new u8[sizeT16_8Map * 2];
-	u8* ZStdT8_16Map	= new u8[sizeT8_16Map * 2];
+	u8* ZStdT16_8Map	= is3D ? new u8[sizeT16_8Map * 2] : NULL;
+	u8* ZStdT8_16Map	= is3D ? new u8[sizeT8_16Map * 2] : NULL;
 	u8* ZStdT8_8Map		= new u8[sizeT8_8Map * 2];
-	u8* ZStdT8_4Map		= new u8[sizeT8_4Map * 2];
-	u8* ZStdT4_8Map		= new u8[sizeT4_8Map * 2];
+	u8* ZStdT8_4Map		= is3D ? new u8[sizeT8_4Map * 2] : NULL;
+	u8* ZStdT4_8Map		= is3D ? new u8[sizeT4_8Map * 2] : NULL;
 	u8* ZStdT4_4Map		= new u8[sizeT4_4Map * 2];
 
-	u8* ZStdTileStream	= new u8[streamTypeCnt*sizeof(u16) * 2];
-	u8* ZStdColorStream	= new u8[streamColorCnt * 2];
+	u8* ZStdTileStream	= new u8[streamTypeCnt*sizeof(u16) * 2 +100];
+	u8* ZStdColorStream	= new u8[streamColorCnt * 2 + 100];
 
 	// --------------------------------------------------------------------------------
 	//   Bit Tile Maps.
 	// --------------------------------------------------------------------------------
 
-	result = ZSTD_compress(ZStdT16_8Map, sizeT16_8Map * 2, corr3D_sizeT16_8Map,sizeT16_8Map, 18);
-	printf("T16_8 Map : %i\n",(int)result);
-	fileOutSize += result;
-	header3D.sizeT16_8MapCmp = result;
-	header3D.sizeT16_8Map   = sizeT16_8Map;
+	header3D.component = component;
 
-	result = ZSTD_compress(ZStdT8_16Map, sizeT8_16Map * 2, corr3D_sizeT8_16Map,sizeT8_16Map, 18);
-	printf("T4 Map : %i\n",(int)result);
-	fileOutSize += result;
-	header3D.sizeT8_16Map   = sizeT8_16Map;
-	header3D.sizeT8_16MapCmp = result;
+	if (is3D) {
+		result = ZSTD_compress(ZStdT16_8Map, sizeT16_8Map * 2, corr3D_sizeT16_8Map,sizeT16_8Map, 18);
+		printf("T16_8 Map : %i\n",(int)result);
+		header3D.sizeT16_8MapCmp = result;
+		header3D.sizeT16_8Map   = sizeT16_8Map;
+	} else {
+		header3D.sizeT16_8MapCmp = 0;
+		header3D.sizeT16_8Map    = 0;
+	}
+
+	if (is3D) {
+		result = ZSTD_compress(ZStdT8_16Map, sizeT8_16Map * 2, corr3D_sizeT8_16Map,sizeT8_16Map, 18);
+		printf("T8_16 Map : %i\n",(int)result);
+		header3D.sizeT8_16Map    = sizeT8_16Map;
+		header3D.sizeT8_16MapCmp = result;
+	} else {
+		header3D.sizeT8_16Map    = 0;
+		header3D.sizeT8_16MapCmp = 0;
+	}
 
 	result = ZSTD_compress(ZStdT8_8Map, sizeT8_8Map * 2, corr3D_sizeT8_8Map,sizeT8_8Map, 18);
-	printf("T8 Map : %i\n",(int)result);
-	fileOutSize += result;
+	printf("T8_8 Map : %i\n",(int)result);
 	header3D.sizeT8_8Map    = sizeT8_8Map;
 	header3D.sizeT8_8MapCmp = result;
 
-	result = ZSTD_compress(ZStdT8_4Map, sizeT8_4Map * 2, corr3D_sizeT8_4Map,sizeT8_4Map, 18);
-	printf("T4 Map : %i\n",(int)result);
-	fileOutSize += result;
-	header3D.sizeT8_4Map    = sizeT8_4Map;
-	header3D.sizeT8_4MapCmp = result;
+	if (is3D) {
+		result = ZSTD_compress(ZStdT8_4Map, sizeT8_4Map * 2, corr3D_sizeT8_4Map,sizeT8_4Map, 18);
+		printf("T8_4 Map : %i\n",(int)result);
+		header3D.sizeT8_4Map    = sizeT8_4Map;
+		header3D.sizeT8_4MapCmp = result;
+	} else {
+		header3D.sizeT8_4Map    = 0;
+		header3D.sizeT8_4MapCmp = 0;
+	}
 
-	result = ZSTD_compress(ZStdT4_8Map, sizeT4_8Map * 2, corr3D_sizeT4_8Map,sizeT4_8Map, 18);
-	printf("T8 Map : %i\n",(int)result);
-	fileOutSize += result;
-	header3D.sizeT4_8Map    = sizeT4_8Map;
-	header3D.sizeT4_8MapCmp = result;
+	if (is3D) {
+		result = ZSTD_compress(ZStdT4_8Map, sizeT4_8Map * 2, corr3D_sizeT4_8Map,sizeT4_8Map, 18);
+		printf("T4_8 Map : %i\n",(int)result);
+		header3D.sizeT4_8Map    = sizeT4_8Map;
+		header3D.sizeT4_8MapCmp = result;
+	} else {
+		header3D.sizeT4_8Map    = 0;
+		header3D.sizeT4_8MapCmp = 0;
+	}
 
 	result = ZSTD_compress(ZStdT4_4Map, sizeT4_4Map * 2, corr3D_sizeT4_4Map,sizeT4_4Map, 18);
-	printf("T4 Map : %i\n",(int)result);
-	fileOutSize += result;
+	printf("T4_4 Map : %i\n",(int)result);
 	header3D.sizeT4_4Map    = sizeT4_4Map;
 	header3D.sizeT4_4MapCmp = result;
 
-
 	// Stream : Tile Type first...
-	for (int t=0; t < 20; t++) { printf("%i-",corr3D_tileStreamTileType[t]); }
-	printf("\t\t");
-
-	result = ZSTD_compress(ZStdTileStream, streamTypeCnt*sizeof(u16)*2, corr3D_tileStreamTileType ,streamTypeCnt*sizeof(u16), 18);
-	fileOutSize += result;
+	/*
+		for (int t=0; t < 20; t++) { printf("%i-",corr3D_tileStreamTileType[t]); }
+		printf("\t\t");
+	*/
+	if (streamTypeCnt > 0) {
+		result = ZSTD_compress(ZStdTileStream, streamTypeCnt*sizeof(u16)*2 +100, corr3D_tileStreamTileType ,streamTypeCnt*sizeof(u16), 18);
+		header3D.comprTypeSize  = result;
+	} else {
+		header3D.comprTypeSize  = 0;
+	}
 	header3D.streamTypeCnt  = streamTypeCnt;	// Nb Tile
-	header3D.comprTypeSize  = result;
 	printf("Stream Tile : %i\n",(int)result);
 
-	// Stream : Color Second
-	for (int t=0; t < 20; t++) { printf("%i-",corr3D_colorStream[t]); }
-	printf("\t\t");
+	if (streamColorCnt > 0) {
+		u8* minStream = new u8[streamColorCnt];
+		u8* maxStream = &minStream[streamColorCnt>>1];
+		
+		for (int n=0; n < streamColorCnt; n += 2) {
+			minStream[n>>1] = corr3D_colorStream[n];
+			maxStream[n>>1] = corr3D_colorStream[n+1];
+		}
 
-	result = ZSTD_compress(ZStdColorStream, streamColorCnt * 2, corr3D_colorStream ,streamColorCnt, 18);
-	fileOutSize += result;
+		/*
+		s16* diffStream = new s16[streamColorCnt*2];
+		s16* wStream    = diffStream;
+		for (int n=3; n < streamColorCnt; n += 3) {
+			int dR = minStream[n]-minStream[n-3];
+			int dG = minStream[n+1]-minStream[n-2];
+			int dB = minStream[n+2]-minStream[n-1];
+			*wStream++ = dR;
+			*wStream++ = dG;
+			*wStream++ = dB;
+			// printf("%i,%i,%i\n",dR,dG,dB);
+		}
+		result = ZSTD_compress(ZStdColorStream, streamColorCnt * 2, diffStream ,streamColorCnt*2, 18);
+		*/
+
+		result = ZSTD_compress(ZStdColorStream, streamColorCnt * 2 + 100, corr3D_colorStream ,streamColorCnt, 18);
+		header3D.comprColorSize = result;
+		// stbi_write_png("palette3D.png",streamColorCnt/3,1,3,minStream,streamColorCnt);
+		delete [] minStream;
+	} else {
+		header3D.comprColorSize = 0;
+	}
 	header3D.streamColorCnt = streamColorCnt;	// Nb Tile x 6
-	header3D.comprColorSize = result;
 	printf("Stream Color : %i\n",(int)result);
 
 	// --------------------------------------------------------------------------------
@@ -6126,10 +6897,12 @@ void EncoderContext::EndCorrelationSearch(bool is3D) {
 	//
 
 	// for (int n=0; n<stream2BitCnt; n++) { corr3D_stream2Bit[n] *= 3; }
-	for (int n=0; n<stream3BitCnt; n++) { corr3D_stream3Bit[n] *= 3; }
-	for (int n=0; n<stream4BitCnt; n++) { corr3D_stream4Bit[n] *= 3; }
-	for (int n=0; n<stream5BitCnt; n++) { corr3D_stream5Bit[n] *= 3; }
-	for (int n=0; n<stream6BitCnt; n++) { corr3D_stream6Bit[n] *= 3; }
+	int multiplier = is3D ? 3 : 2;
+
+	for (int n=0; n<stream3BitCnt; n++) { corr3D_stream3Bit[n] *= multiplier; }
+	for (int n=0; n<stream4BitCnt; n++) { corr3D_stream4Bit[n] *= multiplier; }
+	for (int n=0; n<stream5BitCnt; n++) { corr3D_stream5Bit[n] *= multiplier; }
+	for (int n=0; n<stream6BitCnt; n++) { corr3D_stream6Bit[n] *= multiplier; }
 
 	/*
 	// Stream : 2 Bit
@@ -6137,37 +6910,49 @@ void EncoderContext::EndCorrelationSearch(bool is3D) {
 	fileOutSize += result;
 	printf("Stream 2Bit : %i ",(int)result);
 	*/
-	u8* ZStdStream6Bit	= new u8[stream6BitCnt * 2];
-	u8* ZStdStream5Bit	= new u8[stream5BitCnt * 2];
-	u8* ZStdStream4Bit	= new u8[stream4BitCnt * 2];
-	u8* ZStdStream3Bit	= new u8[stream3BitCnt * 2];
+	u8* ZStdStream6Bit	= new u8[stream6BitCnt * 2 +100];
+	u8* ZStdStream5Bit	= new u8[stream5BitCnt * 2 +100];
+	u8* ZStdStream4Bit	= new u8[stream4BitCnt * 2 +100];
+	u8* ZStdStream3Bit	= new u8[stream3BitCnt * 2 +100];
 
 	// Stream : 3 Bit
-	result = ZSTD_compress(ZStdStream3Bit, stream3BitCnt * 2, corr3D_stream3Bit,stream3BitCnt, 18);
-	fileOutSize += result;
+	if (stream3BitCnt) {
+		result = ZSTD_compress(ZStdStream3Bit, stream3BitCnt * 2 +100, corr3D_stream3Bit,stream3BitCnt, 18);
+		header3D.compr3BitSize  = result;
+	} else {
+		header3D.compr3BitSize  = 0;
+	}
 	header3D.stream3BitCnt  = stream3BitCnt;
-	header3D.compr3BitSize  = result;
 	printf("Stream 3Bit : %i\n",(int)result);
 
 	// Stream : 4 Bit
-	result = ZSTD_compress(ZStdStream4Bit, stream4BitCnt * 2, corr3D_stream4Bit,stream4BitCnt, 18);
-	fileOutSize += result;
+	if (stream4BitCnt) {
+		result = ZSTD_compress(ZStdStream4Bit, stream4BitCnt * 2 +100, corr3D_stream4Bit,stream4BitCnt, 18);
+		header3D.compr4BitSize  = result;
+	} else {
+		header3D.compr4BitSize  = 0;
+	}
 	header3D.stream4BitCnt  = stream4BitCnt;
-	header3D.compr4BitSize  = result;
 	printf("Stream 4Bit : %i\n",(int)result);
 
 	// Stream : 5 Bit
-	result = ZSTD_compress(ZStdStream5Bit, stream5BitCnt * 2, corr3D_stream5Bit,stream5BitCnt, 18);
-	fileOutSize += result;
+	if (stream5BitCnt) {
+		result = ZSTD_compress(ZStdStream5Bit, stream5BitCnt * 2 +100, corr3D_stream5Bit,stream5BitCnt, 18);
+		header3D.compr5BitSize  = result;
+	} else {
+		header3D.compr5BitSize  = 0;
+	}
 	header3D.stream5BitCnt  = stream5BitCnt;
-	header3D.compr5BitSize  = result;
 	printf("Stream 5Bit : %i\n",(int)result);
 
 	// Stream : 6 Bit
-	result = ZSTD_compress(ZStdStream6Bit, stream6BitCnt * 2, corr3D_stream6Bit,stream6BitCnt, 18);
-	fileOutSize += result;
+	if (stream6BitCnt) {
+		result = ZSTD_compress(ZStdStream6Bit, stream6BitCnt * 2 +100, corr3D_stream6Bit,stream6BitCnt, 18);
+		header3D.compr6BitSize  = result;
+	} else {
+		header3D.compr6BitSize  = 0;
+	}
 	header3D.stream6BitCnt  = stream6BitCnt;
-	header3D.compr6BitSize  = result;
 	printf("Stream 6Bit : %i\n",(int)result);
 
 	// Stream : Color, Tile Map
@@ -6184,7 +6969,7 @@ void EncoderContext::EndCorrelationSearch(bool is3D) {
 	printf("File Size at this stage : %i\n", fileOutSize);
 
 	HeaderBase headerTag;
-	headerTag.tag.tag8[0] = '3';
+	headerTag.tag.tag8[0] = is3D ? '3' : '2';
 	headerTag.tag.tag8[1] = 'D';
 	headerTag.tag.tag8[2] = 'T';
 	headerTag.tag.tag8[3] = 'L';
@@ -6198,8 +6983,13 @@ void EncoderContext::EndCorrelationSearch(bool is3D) {
 												+ header3D.sizeT4_8MapCmp + header3D.sizeT4_4MapCmp);
 
 	headerTag.length	  = ((baseSize + 3) >> 2) <<2;	// Round multiple of 4.
+	fileOutSize += headerTag.length;
+
 	u8 pad[3] = { 0,0,0 };
 	int padding = headerTag.length - baseSize;
+
+	// TODO move to write
+	pStats->loc.sizeBlock3DLUT += headerTag.length;
 
 	fwrite(&headerTag, 1,sizeof(HeaderBase)  ,outFile);
 	fwrite(&header3D , 1,sizeof(HeaderTile3D),outFile);
@@ -6213,11 +7003,15 @@ void EncoderContext::EndCorrelationSearch(bool is3D) {
 	fwrite(ZStdTileStream,1,header3D.comprTypeSize,outFile);
 	fwrite(ZStdColorStream,1,header3D.comprColorSize,outFile);
 
-	fwrite(ZStdT16_8Map,1,header3D.sizeT16_8MapCmp,outFile);
-	fwrite(ZStdT8_16Map,1,header3D.sizeT8_16MapCmp,outFile);
+	if (is3D) {
+		fwrite(ZStdT16_8Map,1,header3D.sizeT16_8MapCmp,outFile);
+		fwrite(ZStdT8_16Map,1,header3D.sizeT8_16MapCmp,outFile);
+	}
 	fwrite(ZStdT8_8Map ,1,header3D.sizeT8_8MapCmp ,outFile);
-	fwrite(ZStdT8_4Map ,1,header3D.sizeT8_4MapCmp ,outFile);
-	fwrite(ZStdT4_8Map ,1,header3D.sizeT4_8MapCmp ,outFile);
+	if (is3D) {
+		fwrite(ZStdT8_4Map ,1,header3D.sizeT8_4MapCmp ,outFile);
+		fwrite(ZStdT4_8Map ,1,header3D.sizeT4_8MapCmp ,outFile);
+	}
 	fwrite(ZStdT4_4Map ,1,header3D.sizeT4_4MapCmp ,outFile);
 
 	if (padding) { fwrite(pad, 1, padding, outFile); }
@@ -6236,7 +7030,12 @@ void EncoderContext::EndCorrelationSearch(bool is3D) {
 	delete[] ZStdT4_8Map;
 	delete[] ZStdT4_4Map;
 
+	deleteAllocated3DParts();
 
+	delete [] pZStdStream;
+}
+
+void EncoderContext::deleteAllocated3DParts() {
 	delete [] corr3D_stream6Bit;
 	delete [] corr3D_stream5Bit;
 	delete [] corr3D_stream4Bit;
@@ -6252,13 +7051,12 @@ void EncoderContext::EndCorrelationSearch(bool is3D) {
 
 	delete [] corr3D_tileStreamTileType;
 	delete [] corr3D_colorStream;
-
-	delete [] pZStdStream;
 }
 
 void EncoderContext::RegisterAndCreate3DLut() {
 	correlationPatternCount3D = 0;
 
+	/*
 	LinearEqu3D diag3D;
 	diag3D.Set(0.0f,0.0f,0.0f,64.0f,64.0f,64.0f);
 	correlationPattern3D[correlationPatternCount3D++].Set3D(350.0f, &diag3D, 1, 0,255,0 );
@@ -6368,6 +7166,32 @@ void EncoderContext::RegisterAndCreate3DLut() {
 	PatternMultiCol1[3].Set( 0.0f, 0.0f, 9.5f,  15.0f,12.0f, 0.0f); // Connect Left-Right
 	PatternMultiCol1[4].Set( 0.0f, 0.0f, 9.5f,  2.0f,  5.0f,34.0f); // Right->Special point.
 	correlationPattern3D[correlationPatternCount3D++].Set3D(350.0f, PatternMultiCol1, 5, 0,255,0 );
+*/
+	Load3DPattern("Bank3D//tileMap_Aqours_31107015_n_2250p.png_352-1416.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_41107010_2250p.png_1000-112.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_41107010_2250p.png_1000-504.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_1520-1968.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_1520-1976.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_1520-800.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_1568-2104.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_280-888.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_352-840.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_448-2088.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_464-1632.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_608-2152.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_688-2184.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_768-2176.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_2250p.png_88-280.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_43104009_r_720p.png_384-280.lut");
+
+	// Group 2
+	Load3DPattern("Bank3D//tileMap_Aqours_31107015_n_2250p.png_1128-104.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_41107010_2250p.png_1304-2040.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_41107010_2250p.png_1384-2208.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_31107015_n_2250p.png_1136-64.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_41109006_n_2250p.png_2528-528.lut");
+	Load3DPattern("Bank3D//tileMap_Aqours_41109006_r2550p.png_1296-752.lut");
+
 
 	LUTHeader hd;
 	hd.lutH[0] = 'L'; hd.lutH[1] = 'U'; hd.lutH[2] = 'L'; hd.lutH[3] = '0'; // Compressed or uncompressed.
@@ -6398,8 +7222,248 @@ void EncoderContext::RegisterAndCreate3DLut() {
 	delete[] stream;
 }
 
+void EncoderContext::Load3DPattern(const char* fileName) {
+	// 
+	FILE* f = fopen(fileName,"rb");
+	if (f) {
+		u8 r[256];
+		u8 g[256];
+		u8 b[256];
+
+		u8 xyz[128*3];
+		u8 pos[128];
+
+		u8 count;
+		fread(&count,1,1,f);
+		fread(r,sizeof(u8),count,f);
+		fread(g,sizeof(u8),count,f);
+		fread(b,sizeof(u8),count,f);
+		fclose(f);
+
+		// Interleave linear arrays.
+		for (int n=0; n < count; n++) {
+			xyz[n*3  ] = r[n];
+			xyz[n*3+1] = g[n];
+			xyz[n*3+2] = b[n];
+			pos[n]     = n;
+		}
+
+
+		// Now sort by morton interleaved code...
+		sortPalette(pos,xyz,count);
+
+		// Remove Duplicate.
+		/*
+		int write = 0;
+		u8* ptrR  = &xyz[3];
+		u8* ptrW  = &xyz[3];
+
+		for (int n=1; n < count; n++) {
+			//
+			if (ptrR[0]==ptrR[-3] && ptrR[1]==ptrR[-2] && ptrR[2]==ptrR[-1]) {
+				// Skip...
+			} else {
+				*ptrW++ = ptrR[0];
+				*ptrW++ = ptrR[1];
+				*ptrW++ = ptrR[2];
+				write++;
+			}
+		}
+		*/
+
+		// Insert interpolated to fill if less than 64.
+
+		// Remove if more than 64.
+
+		// Now need to convert from n points to 64 as input.
+		u8* arrayXYZ = xyz;
+		u8 reduceXYZ[64*3];
+		if (count > 64) {
+			reduceArray(xyz, reduceXYZ, count, 64,false);
+			arrayXYZ = reduceXYZ;
+		}
+
+		correlationPattern3D[correlationPatternCount3D++].Set3DPointCloud(15.0f,arrayXYZ,count);
+
+		/*
+		for (int n=0; n < 64; n++) {
+			xyz[n*3]   = (xyz[n*3  ]<<2) | (xyz[n*3  ]>>4); // 6->8 bit
+			xyz[n*3+1] = (xyz[n*3+1]<<2) | (xyz[n*3+1]>>4); // 6->8 bit
+			xyz[n*3+2] = (xyz[n*3+2]<<2) | (xyz[n*3+2]>>4); // 6->8 bit
+		}
+
+		char buffer[1000];
+		sprintf(buffer,"%s.png",fileName);
+		stbi_write_png(buffer, 8, 8, 3, xyz, 24);
+		*/
+	}
+
+
+}
+
+void EncoderContext::Load2DPattern(const char* fileName) {
+	// 
+	int strL = strlen(fileName);
+
+	FILE* f = fopen(fileName,"rb");
+	if (f) {
+		u8 a[256];
+		u8 b[256];
+
+		u8 xy[128*2];
+		u8 pos[128];
+
+		u8 count;
+		if (fileName[strL-1]=='g') {
+			// PNG
+			int x;
+			int y;
+			int ch;
+			count = 0;
+			unsigned char* src = stbi_load(fileName, &x, &y, &ch, 3);
+			for (int py=0; py < y; py++) {
+				for (int px=0; px < x; px++) {
+					int idx = (px + (py*64)) * 3;
+					u8 v = src[idx];
+					if (count < 64 && v) {
+						xy[count*2] = px;
+						xy[count*2 +1] = py;
+						pos[count] = count;
+						count++;
+					}
+				}
+			}
+
+			printf("Load 2D LUT %s : count %i\n",fileName,count);
+		} else {
+			fread(&count,1,1,f);
+			fread(a,sizeof(u8),count,f);
+			fread(b,sizeof(u8),count,f);
+			fclose(f);
+
+			// Interleave linear arrays.
+			for (int n=0; n < count; n++) {
+				xy[n*2  ] = a[n];
+				xy[n*2+1] = b[n];
+				pos[n]     = n;
+			}
+		}
+
+		// Now sort by morton interleaved code...
+		sortPalette2D(pos,xy,count);
+
+		// Remove Duplicate.
+		/*
+		int write = 0;
+		u8* ptrR  = &xyz[3];
+		u8* ptrW  = &xyz[3];
+
+		for (int n=1; n < count; n++) {
+			//
+			if (ptrR[0]==ptrR[-3] && ptrR[1]==ptrR[-2] && ptrR[2]==ptrR[-1]) {
+				// Skip...
+			} else {
+				*ptrW++ = ptrR[0];
+				*ptrW++ = ptrR[1];
+				*ptrW++ = ptrR[2];
+				write++;
+			}
+		}
+		*/
+
+		// Insert interpolated to fill if less than 64.
+
+		// Remove if more than 64.
+
+		// Now need to convert from n points to 64 as input.
+
+		u8* arrayXYZ = xy;
+		u8 reduceXYZ[64*2];
+		if (count > 64) {
+			reduceArray(xy, reduceXYZ, count, 64,true);
+			arrayXYZ = reduceXYZ;
+		}
+		
+		correlationPattern2D[correlationPatternCount2D++].Set2DPointCloud(15.0f,arrayXYZ,count);
+
+		/*
+		for (int n=0; n < 64; n++) {
+			arrayXYZ[n*2]   = (arrayXYZ[n*2  ]<<2) | (arrayXYZ[n*2  ]>>4); // 6->8 bit
+			arrayXYZ[n*2+1] = (arrayXYZ[n*2+1]<<2) | (arrayXYZ[n*2+1]>>4); // 6->8 bit
+		}
+
+		char buffer[1000];
+		sprintf(buffer,"%s.png",fileName);
+		stbi_write_png(buffer, 8, 8, 3, xyz, 24);
+		*/
+	}
+}
+
+
 void EncoderContext::RegisterAndCreate2DLut() {
 	correlationPatternCount2D = 0;
+
+	Load2DPattern("Bank2D\\t10_tileMap13116.lut.png");
+	Load2DPattern("Bank2D\\t11_tileMap2099.lut.png");
+	Load2DPattern("Bank2D\\t12_tileMap2083.lut.png");
+	Load2DPattern("Bank2D\\t13_tileMap29660.lut.png");
+	Load2DPattern("Bank2D\\t14_tileMap30402.lut.png");
+	Load2DPattern("Bank2D\\t15_tileMap10903.lut.png");
+	Load2DPattern("Bank2D\\t16_tileMap16815.lut.png");
+	Load2DPattern("Bank2D\\t17_tileMap18049.lut.png");
+	Load2DPattern("Bank2D\\t18_tileMap20386.lut.png");
+	Load2DPattern("Bank2D\\t19_tileMap29160.lut.png");
+	Load2DPattern("Bank2D\\t1_tileMap17049.lut.png");
+	Load2DPattern("Bank2D\\t20_tileMap30698.lut.png");
+	Load2DPattern("Bank2D\\t21_tileMap12142.lut.png");
+	Load2DPattern("Bank2D\\t22_tileMap1247.lut.png");
+	Load2DPattern("Bank2D\\t23_tileMap14650.lut.png");
+	Load2DPattern("Bank2D\\t2_tileMap13128.lut.png");
+	Load2DPattern("Bank2D\\t3_tileMap32174.lut.png");
+	Load2DPattern("Bank2D\\t4_tileMap13051.lut.png");
+	Load2DPattern("Bank2D\\t5_tileMap22916.lut.png");
+	Load2DPattern("Bank2D\\t6_tileMap29869.lut.png");
+	Load2DPattern("Bank2D\\t7_tileMap10040.lut.png");
+	Load2DPattern("Bank2D\\t8_tileMap10885.lut.png");
+	Load2DPattern("Bank2D\\t9_tileMap12019.lut.png");
+	Load2DPattern("Bank2D\\tileMap14143.lut.png");
+	Load2DPattern("Bank2D\\tileMap16448.lut.png");
+	Load2DPattern("Bank2D\\tileMap17195.lut.png");
+	Load2DPattern("Bank2D\\tileMap18699.lut.png");
+	Load2DPattern("Bank2D\\tileMap18784.lut.png");
+	Load2DPattern("Bank2D\\tileMap18853.lut.png");
+	Load2DPattern("Bank2D\\tileMap19957.lut.png");
+	Load2DPattern("Bank2D\\tileMap22351.lut.png");
+	Load2DPattern("Bank2D\\tileMap2359.lut.png");
+
+	LUTHeader hd;
+	hd.lutH[0] = 'L'; hd.lutH[1] = 'U'; hd.lutH[2] = '2'; hd.lutH[3] = '0'; // Compressed or uncompressed.
+	hd.version				= 0;
+	hd.entryCount			= correlationPatternCount2D-1;
+	hd.padding_extension[0] = 0;
+	hd.padding_extension[0] = 1;
+
+	// Single base pattern per save.
+	u32 perPattern			= ((64+32+16+8)*2);
+	u32 uncmpSize			= perPattern * correlationPatternCount2D;
+	u8* stream				= new u8[uncmpSize];
+	u8* streamFill			= stream;
+
+	// 3 bit, 4 bit, 5 bit, 6 bit
+	for (int n=0; n < 4; n++) {
+		for (int m=0; m < correlationPatternCount2D;m++) {
+			u8* next = correlationPattern2D[m].BinarySave2D(streamFill,0,(EncoderContext::Mode)n);
+			streamFill = next;
+		}
+	}
+
+	FILE* fLutO = fopen("LutFile2D.lut","wb");
+	fwrite(&hd,sizeof(LUTHeader),1,fLutO);
+	fwrite(stream,uncmpSize,1,fLutO);
+	fclose(fLutO);
+
+	return;
+
 
 	LinearEqu2D diag3D;
 	/*
@@ -6494,43 +7558,294 @@ void EncoderContext::RegisterAndCreate2DLut() {
 	BuildDistanceField(&spl,1,Spline1Table);
 	*/
 
-	LUTHeader hd;
-	hd.lutH[0] = 'L'; hd.lutH[1] = 'U'; hd.lutH[2] = 'L'; hd.lutH[3] = '0'; // Compressed or uncompressed.
-	hd.version				= 0;
-	hd.entryCount			= correlationPatternCount2D-1;
-	hd.padding_extension[0] = 0;
-	hd.padding_extension[0] = 1;
+	Load2DPattern("Lut2D_1.png");
+	Load2DPattern("Lut2D_2.png");
+	Load2DPattern("Lut2D_3.png");
+	Load2DPattern("Lut2D_4.png");
+	Load2DPattern("Lut2D_5.png");
+	Load2DPattern("Lut2D_6.png");
+	Load2DPattern("Lut2D_7.png");
+	Load2DPattern("Lut2D_8.png");
 
-	// Single base pattern per save.
-	u32 perPattern			= ((64+32+16+8)*2);
-	u32 uncmpSize			= perPattern * correlationPatternCount2D;
-	u8* stream				= new u8[uncmpSize];
-	u8* streamFill			= stream;
-
-	// 3 bit, 4 bit, 5 bit, 6 bit
-	for (int n=0; n < 4; n++) {
-		for (int m=0; m < correlationPatternCount2D;m++) {
-			u8* next = correlationPattern2D[m].BinarySave2D(streamFill,0,(EncoderContext::Mode)n);
-			streamFill = next;
-		}
-	}
-
-	FILE* fLutO = fopen("LutFile2D.lut","wb");
-	fwrite(&hd,sizeof(LUTHeader),1,fLutO);
-	fwrite(stream,uncmpSize,1,fLutO);
-	fclose(fLutO);
 
 	delete[] stream;
 }
 
+u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
+	u8* startStream = stream;
+	int w = src->GetWidth();
+	int h = src->GetHeight();
 
-void EncoderContext::convert(const char* outputFile) {
+	u8 histo[64]; memset(histo,0,sizeof(u8)*64);
+	u8 histo256[256];
+
+	int min = 99999;
+	int max = -99999;
+	int totalPixel = 0;
+	int total0 = 0;
+	int total1 = 0;
+
+	for (int y = 0; y < h; y+=8) {
+		for (int x = 0; x < w; x+=8) {
+
+			int pixelCount = 0;
+			memset(histo,0,sizeof(u8)*64);
+			memset(histo256,0,sizeof(u8)*256);
+			int minV8 = 99999;
+			int maxV8 = -99999;
+
+			// 4x4 => 4 tiles
+			bool isOut;
+			for (int y2=0; y2 < 8; y2 += 4) {
+				for (int x2=0; x2 < 8; x2 += 4) {
+
+					if (map->GetPixelValue(x2+x,y2+y,isOut) == 0) {
+						// Extract Histogram.
+						for (int iy =0; iy < 4; iy++) {
+							for (int ix =0; ix < 4; ix++) {
+
+								int v = src->GetPixelValue(x+x2+ix,y+y2+iy,isOut);
+								pixelCount++;
+
+								// Histogram
+								int idx = v >> 2; // Reduce 6 bit
+								histo[idx]++;
+								histo256[v]++;
+								if (minV8 > v) { minV8 = v; }
+								if (maxV8 < v) { maxV8 = v; }
+							}
+						}
+					}
+				}
+			}
+
+			if (pixelCount > 0) {
+				// Per 8x8 tile :
+
+				// Extract Min-Max, First and Second.
+				int idxBestFirst = -1;
+				int valBestFirst = -1;
+				for (int n=0; n < 64; n++) {
+					if (histo[n] >= valBestFirst) { // >= is important !!! Take most RIGHT best value. Override OK !
+						valBestFirst = histo[n];
+						idxBestFirst = n;
+					}
+				}
+
+				int firstV = -1;
+				int amount = -1;
+				for (int sub=0; sub < 4; sub++) {
+					int amnt = histo256[sub+(idxBestFirst*4)];
+					if (amount < amnt) {
+						amount = amnt;
+						firstV = sub+(idxBestFirst*4);
+					}
+				}
+
+				histo[idxBestFirst] = 0; // Reset histogram.
+
+				// Extract Min-Max, First and Second.
+				int idxBestSecnd = -1;
+				int valBestSecnd = -1;
+				for (int n=63; n >= 0; n--) {
+					if (histo[n] >= valBestSecnd) { // >= is important !!! Take most LEFT best value. Override OK !
+						valBestSecnd = histo[n];
+						idxBestSecnd = n;
+					}
+				}
+
+				histo[idxBestSecnd] = 0; // Reset histogram.
+
+				//
+				int minIdx = -1;
+				int maxIdx = -1;
+				for (int n=0; n < 64; n++) {
+					if (histo[n] != 0) { // >= is important !!! Take most RIGHT best value. Override OK !
+						if (minIdx < 0) {
+							minIdx = n;
+						}
+						maxIdx = n;
+					}
+				}
+
+						
+				// outputValue = (idxBestFirst << 2) + 2;  (+2 ?) Compute some rounding ?
+
+				// Extract 
+
+			
+						/* Quality loss too big.
+						int idx2 = v>>3; // 5 bit.
+						int v8 = (idx2<<3) | (idx2>>2);
+						*/
+				//		int idx2 = v>>2; // 6 bit. --> Add Dithering
+				//		int v8 = (idx2<<2) | (idx2>>4);
+				//		debug->SetPixel(x+x2+ix,y+y2+iy,v8);
+
+				for (int y2=0; y2 < 8; y2 += 4) {
+					for (int x2=0; x2 < 8; x2 += 4) {
+
+						if (map->GetPixelValue(x2+x,y2+y,isOut) == 0) {
+							// Extract Histogram.
+							for (int iy =0; iy < 4; iy++) {
+								for (int ix =0; ix < 4; ix++) {
+
+									int v = src->GetPixelValue(x+x2+ix,y+y2+iy,isOut);
+
+									if (!isOut) {
+										// Histogram
+										int idx = v >> 2; // Reduce 6 bit
+										if (idx == idxBestFirst) {
+											*stream++ = 0;
+											total0++;
+											debug->SetPixel(x2+x+ix,y2+y+iy,firstV);
+										} else {
+											if (idx == idxBestSecnd) {
+												*stream++= 1;
+												total1++;
+												debug->SetPixel(x2+x+ix,y2+y+iy,idxBestSecnd<<2);
+
+											} else {
+												// Normalization between min and max over 6 bit. + 2
+												// No LUT for now...
+												int v = ((idx - minIdx)>>2) + 2;
+												*stream++= v;
+												debug->SetPixel(x2+x+ix,y2+y+iy,((idx<<2)+1));
+											}
+										}
+
+										histo[idx]++;
+										if (minV8 > v) { minV8 = v; }
+										if (maxV8 < v) { maxV8 = v; }
+
+										map->SetPixel(x2+x+ix,y2+y+iy,255);
+									}
+								}
+							}
+						}
+					}
+				}
+
+				totalPixel += pixelCount;
+
+
+#if 0
+				printf("[%i,%i] (%i)\n",x,y,pixelCount);
+				for (int n=0; n < 64; n++) {
+					printf("%i,",histo[n]);
+				}
+				printf("\n");
+#endif
+			}
+		}
+	}
+	printf("Plane : %i Pixel (0:%i, 1:%i)\n", totalPixel, total0, total1);
+	return stream;
+}
+
+#include "dirent.h"
+static int lutID		= 0;
+DIR * currDir			= NULL;
+struct dirent *entry	= NULL;
+
+void EncoderContext::LoadLUT(int posLoading) {
+	// Work on tile Y -> Load stats from previous picture.
+	if (lutID == 0) {
+		currDir = opendir("tile3D");
+		if (currDir) {
+			entry = readdir(currDir); // Give .
+			entry = readdir(currDir); // ..
+			entry = readdir(currDir); // 
+		}
+	}
+
+	if (entry) {
+		// Load Tile
+		correlationPatternCount3D = posLoading;
+		pStats->loc.Reset(original->GetWidth(),original->GetHeight());
+		char buffer[1000];
+		sprintf(buffer,"tile3D//%s",entry->d_name);
+		Load3DPattern(buffer);
+	}
+}
+
+void EncoderContext::EvalLutEnded() {
+	if (pStats) {
+		if (entry) {
+			// Write the stats...
+			FILE* fOut = fopen("logTile3D.txt","a+");
+		
+			fprintf(fOut,"%i,%i,%i,%i,%i,%i,%s\n",lutID,pStats->loc.tile3DCount,pStats->loc.pixelCount3D_3Bit,pStats->loc.pixelCount3D_4Bit,pStats->loc.pixelCount3D_5Bit,pStats->loc.pixelCount3D_6Bit,entry->d_name);
+			// Go next...
+			lutID++;
+			fclose(fOut);
+		}
+	}
+}
+
+bool EncoderContext::evalLUTComplete() {
+	// Ended all evals ?
+	entry = readdir(currDir); // 
+	if (!entry) {
+		closedir(currDir);
+		lutID = 0;
+		return true;
+	} else {
+		return false;
+	}
+}
+
+void EncoderContext::LoadLUT2D(int posLoading) {
+	// Work on tile Y -> Load stats from previous picture.
+	if (lutID == 0) {
+		currDir = opendir("tile2D");
+		if (currDir) {
+			entry = readdir(currDir); // Give .
+			entry = readdir(currDir); // ..
+			entry = readdir(currDir); // 
+		}
+	}
+
+	if (entry) {
+		// Load Tile
+		correlationPatternCount2D = posLoading;
+		pStats->loc.Reset(original->GetWidth(),original->GetHeight());
+		char buffer[1000];
+		sprintf(buffer,"tile2D//%s",entry->d_name);
+		Load2DPattern(buffer);
+	}
+}
+
+void EncoderContext::EvalLutEnded2D() {
+	if (pStats) {
+		if (entry) {
+			// Write the stats...
+			FILE* fOut = fopen("logTile2D.txt","a+");
+		
+			fprintf(fOut,"%i,%i,%i,%i,%i,%i,%s\n",lutID,pStats->loc.tile3DCount,pStats->loc.pixelCount2D_3Bit,pStats->loc.pixelCount2D_4Bit,pStats->loc.pixelCount2D_5Bit,pStats->loc.pixelCount2D_6Bit,entry->d_name);
+			// Go next...
+			lutID++;
+			fclose(fOut);
+		}
+	}
+}
+
+void EncoderContext::Convert(const char* source, const char* outputFile, bool dump) {
 	FILE* outF = fopen(outputFile, "wb");
 
 	if (outF) {
 		outFile = outF;
 
 		fileOutSize = 0;
+
+		// Transfer flag if nessacessary for subroutines.
+		this->dumpImage = dump;
+
+		if (evaluateLUT2D) {
+			char buffer[1000];
+			sprintf(buffer,"mask2d_%s",source);
+			mapSmoothTile = Image::LoadPNG(buffer);
+		}
 
 		// ---------------------------------------------------
 		// Write Header
@@ -6550,7 +7865,9 @@ void EncoderContext::convert(const char* outputFile) {
 
 		convRGB2YCoCg(doConversionRGB2YCoCg);
 		Image* imgRGB = YCoCgImg->ConvertToYCoCg2RGB(doConversionRGB2YCoCg);
-		imgRGB->SavePNG("recoded.png",NULL);
+		if (dump) {
+			imgRGB->SavePNG("recoded.png",NULL);
+		}
 
 //			MipPrefilter(true);
 //			ProcessAlpha(true);
@@ -6567,230 +7884,501 @@ void EncoderContext::convert(const char* outputFile) {
 //			output->savePNG("outputEncoder.png",NULL);
 //			output->convertToYCoCg2RGB()->savePNG("outputEncoderRGB.png",NULL);
 
-		PrepareQuadSmooth();
-
 		int rejectFactor = 3;
 		bool useYCoCgForGradient = false; // false = use RGB. (Saved 1 KB in a sample test)
 
-		// ---------------------------------------------------------------------------------------------------------------------------------------
-		//
-		// Full RGB Gradient : 16x16,16x8,8*16,8*8,8*4,4*8,4*4 pixels tiles....
-		// Progressive decreasing gradation tile size reduce pressure on RGB pixel stream size.
-		// And make final stream a bit smaller.
-		//
-		// ---------------------------------------------------------------------------------------------------------------------------------------
-		// RGB 16x16 TILE
-		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,4,4); 
-//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+		PrepareQuadSmooth();
 
-		// ---------------------------------------------------------------------------------------------------------------------------------------
-		// RGB 16x8 TILE
-		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,4,3); 
-//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+		if (!evaluateLUT2D) {
 
-		// ---------------------------------------------------------------------------------------------------------------------------------------
-		// RGB 8x16 TILE
-		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,3,4); 
-//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+			// ---------------------------------------------------------------------------------------------------------------------------------------
+			//
+			// Full RGB Gradient : 16x16,16x8,8*16,8*8,8*4,4*8,4*4 pixels tiles....
+			// Progressive decreasing gradation tile size reduce pressure on RGB pixel stream size.
+			// And make final stream a bit smaller.
+			//
+			// ---------------------------------------------------------------------------------------------------------------------------------------
+			// RGB 16x16 TILE
+			FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,4,4); 
+	//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+	//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
-		// ---------------------------------------------------------------------------------------------------------------------------------------
-		// RGB 8x8 TILE
-		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,3,3); 
-//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+			// ---------------------------------------------------------------------------------------------------------------------------------------
+			// RGB 16x8 TILE
+			FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,4,3); 
+	//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+	//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
-		// ---------------------------------------------------------------------------------------------------------------------------------------
-		// RGB 8x4 TILE
-		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,3,2); 
-//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+			// ---------------------------------------------------------------------------------------------------------------------------------------
+			// RGB 8x16 TILE
+			FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,3,4); 
+	//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+	//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
-		// ---------------------------------------------------------------------------------------------------------------------------------------
-		// RGB 4x8 TILE
-		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,2,3); 
-//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+			// ---------------------------------------------------------------------------------------------------------------------------------------
+			// RGB 8x8 TILE
+			FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,3,3); 
+	//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+	//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
-		// ---------------------------------------------------------------------------------------------------------------------------------------
-		// RGB 4x4 TILE
-		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,2,2); 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+			// ---------------------------------------------------------------------------------------------------------------------------------------
+			// RGB 8x4 TILE
+			FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,3,2); 
+	//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+	//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
-		/* PROTOTYPE TEST : 2x2 tile (irrealist, as it uses too much RGB pixel stream... just for debug/test purpose)
-		// ---------------------------------------------------------------------------------------------------------------------------------------
-		FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,1,1); // RGB 2x2 TILE
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
-		*/
+			// ---------------------------------------------------------------------------------------------------------------------------------------
+			// RGB 4x8 TILE
+			FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,2,3); 
+	//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+	//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
 
-		// --------------------------------------------------------------
-		// Find 3D Tile matching...
-		// --------------------------------------------------------------
-#if 1
-		RegisterAndCreate3DLut();
+			// ---------------------------------------------------------------------------------------------------------------------------------------
+			// RGB 4x4 TILE
+			FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,2,2); 
+			if (dump) {
+				output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+				mappedRGB->SavePNG("RGBFieldRGB.png",NULL);
+			}
+	//		mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+
+			/* PROTOTYPE TEST : 2x2 tile (irrealist, as it uses too much RGB pixel stream... just for debug/test purpose)
+			// ---------------------------------------------------------------------------------------------------------------------------------------
+			FittingQuadSmooth(rejectFactor, original->GetPlane(0), original->GetPlane(1), original->GetPlane(2), output,useYCoCgForGradient,1,1); // RGB 2x2 TILE
+			output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+			mapSmoothTile->SavePNG("GradientMap.png",NULL); mappedRGB->SavePNG("RGBField.png",NULL);
+			*/
+
+			// --------------------------------------------------------------
+			// Find 3D Tile matching...
+			// --------------------------------------------------------------
+
+	#if 1
+			// DumpTileRGB();
+			AnalyzeColorCount(original,8);
+
+			evaluateMap = NULL;
+
+			RegisterAndCreate3DLut();
+			testedLUT = correlationPatternCount3D;
+
+		nextLutEval:
+			if (evaluateLUT) {
+				evaluateMap = new Plane(smoothMap->GetWidth(),smoothMap->GetHeight());
+				evaluateMap->Clear();
+			}
+
+			char EvaluateBuffer[1000];
+			if (evaluateLUT) {
+				LoadLUT(testedLUT);
+				// For each tile and bitmap we test...
+				sprintf(EvaluateBuffer,"tile3DMap//%s_%s.png",outputFile,entry->d_name);
+			} else {
+				// RegisterAndCreate3DLut();
+			}
+
+			if (dump) {
+				mapSmoothTile->SavePNG("GradientMap.png",NULL);
+			}
+
+			StartCorrelationSearch(true);
+
+			isCaptureMode3D = true;
+
+	//		output->Clear();
+			Correlation3DSearch(original, output,4,3); // Test in RGB Space.
+			if (dump) {
+				output->SavePNG("Post3DTile16_8.png",NULL);
+			}
+
+	//		output->Clear();
+			Correlation3DSearch(original, output,3,4); // Test in RGB Space.
+			if (dump) {
+				output->SavePNG("Post3DTile8_16.png",NULL);
+			}
+
+	//		output->Clear();
+			Correlation3DSearch(original, output,3,3); // Test in RGB Space.
+			if (dump) {
+				output->SavePNG("Post3DTile8_8.png",NULL);
+			}
+			isCaptureMode3D = false;
 
 
-		// DumpTileRGB();
-		AnalyzeColorCount(original,8);
+	//		output->Clear();
+			Correlation3DSearch(original, output,3,2); // Test in RGB Space.
+			if (dump) {
+				output->SavePNG("Post3DTile8_4.png",NULL);
+			}
+
+	//		output->Clear();
+			Correlation3DSearch(original, output,2,3); // Test in RGB Space.
+			if (dump) {
+				output->SavePNG("Post3DTile4_8.png",NULL);
+			}
+
+	//		output->Clear();
+			Correlation3DSearch(original, output,2,2); // Test in RGB Space.
+			if (dump) {
+				output->SavePNG("Post3DTile4_4.png",NULL);
+			}
+
+		#if 0 // Tried using YCoCg with 3D Tile
+			useYCoCg = true;
+
+	//		output->Clear();
+			Correlation3DSearch(original, output,3,2); // Test in RGB Space.
+			if (dump) {
+				output->SavePNG("Post3DTile8_4.png",NULL);
+			}
+
+	//		output->Clear();
+			Correlation3DSearch(original, output,2,3); // Test in RGB Space.
+			if (dump) {
+				output->SavePNG("Post3DTile4_8.png",NULL);
+			}
+
+	//		output->Clear();
+			Correlation3DSearch(original, output,2,2); // Test in RGB Space.
+			if (dump) {
+				output->SavePNG("Post3DTile4_4.png",NULL);
+			}
 	
-		mapSmoothTile->SavePNG("GradientMap.png",NULL);
+			useYCoCg = false;
+		#endif
 
-		StartCorrelationSearch(true);
-//		output->Clear();
-		Correlation3DSearch(original, output,4,3); // Test in RGB Space.
-		output->SavePNG("Post3DTile16_8.png",NULL);
+			if (evaluateLUT) {
+				EvalLutEnded();
+				if (!evalLUTComplete()) {
+					deleteAllocated3DParts();
 
-//		output->Clear();
-		Correlation3DSearch(original, output,3,4); // Test in RGB Space.
-		output->SavePNG("Post3DTile8_16.png",NULL);
+					// evaluateMap->SaveAsPNG(EvaluateBuffer);
 
-//		output->Clear();
-		Correlation3DSearch(original, output,3,3); // Test in RGB Space.
-		output->SavePNG("Post3DTile8_8.png",NULL);
+					delete evaluateMap;
+					goto nextLutEval;
+				}
+				//
+				deleteAllocated3DParts();
+			} else {
+				EndCorrelationSearch(true,7); // Header will be both 8 and 4 pixel tile stream...
+			}
+		//	Correlation3DSearch(YCoCgImg, output); // Test in YCoCb Space.
+	#endif
 
-//		output->Clear();
-		Correlation3DSearch(original, output,3,2); // Test in RGB Space.
-		output->SavePNG("Post3DTile8_4.png",NULL);
-
-//		output->Clear();
-		Correlation3DSearch(original, output,2,3); // Test in RGB Space.
-		output->SavePNG("Post3DTile4_8.png",NULL);
-
-//		output->Clear();
-		Correlation3DSearch(original, output,2,2); // Test in RGB Space.
-		output->SavePNG("Post3DTile4_4.png",NULL);
-
-		EndCorrelationSearch(true); // Header will be both 8 and 4 pixel tile stream...
-	//	Correlation3DSearch(YCoCgImg, output); // Test in YCoCb Space.
-#endif
-		//
-		// Next Phase IN ORDER : 3D Correlation in RGB space. [RGB][RGB][Tile Type + Swap][Tile encoded 8x8]
-		// For now support only Tile Type '0' -> Later add new type (now single LINE)
-		//
-
+	#if 0
+			// [Dump 3D Histogram]
+			FILE* logF = fopen("log3DHisto.txt","wb");
+			int cnt = 0;
+			for (int z=0; z < 64; z++) {
+				for (int y=0; y < 64; y++) {
+					for (int x=0; x < 64; x++) {
+						int v = histo3D[x + (y<<6) + (z<<12)];
+						if (v) {
+							fprintf(logF,"%i,%i,%i,%i,%i\n",x,y,z,v);
+							cnt++;
+						}
+					}
+				}
+			}
+			fclose(logF);
+	#endif
+			//
+			// Next Phase IN ORDER : 3D Correlation in RGB space. [RGB][RGB][Tile Type + Swap][Tile encoded 8x8]
+			// For now support only Tile Type '0' -> Later add new type (now single LINE)
+			//
+		} else {
+			CheckMipmapMask();
+		}
 
 		// ------------------------------------------------------
 		//   Now TWO PLANE encoding...
 		// ------------------------------------------------------
 
 		// YCoCg -> Lower res works => BETTER. -> Can work on 1/2 or 1/4 CoCg for Co and Cg.
+		dump = true;
 
 		//
 		// RB,RG,GB Gradient 4 pixels....
 		//
-		FittingQuadSmooth(rejectFactor,
-			original->GetPlane(0),
-			NULL,
-			original->GetPlane(2),
-			output,useYCoCgForGradient,2,2);
+		size_t result = 0;
+		if (!evaluateLUT && !evaluateLUT2D) {
+			FittingQuadSmooth(rejectFactor,
+				original->GetPlane(0),
+				NULL,
+				original->GetPlane(2),
+				output,useYCoCgForGradient,2,2);
 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("RGB16+8+4+RBMap.png",NULL);
-		mappedRGB->SavePNG("RGBField.png",NULL);
+			if (dump) {
+				output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+				mapSmoothTile->SavePNG("RGB16+8+4+RBMap.png",NULL);
+				mappedRGB->SavePNG("RGBFieldRB.png",NULL);
+			}
 		
-		FittingQuadSmooth(rejectFactor,
-			original->GetPlane(0),
-			original->GetPlane(1),
-			NULL,
-			output,useYCoCgForGradient,2,2);
+			FittingQuadSmooth(rejectFactor,
+				original->GetPlane(0),
+				original->GetPlane(1),
+				NULL,
+				output,useYCoCgForGradient,2,2);
 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("RGB16+8+4+RGMap.png",NULL);
-		mappedRGB->SavePNG("RGBField.png",NULL);
+			if (dump) {
+				output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+				mapSmoothTile->SavePNG("RGB16+8+4+RGMap.png",NULL);
+				mappedRGB->SavePNG("RGBFieldRG.png",NULL);
+			}
 
-		FittingQuadSmooth(rejectFactor,
-			NULL,
-			original->GetPlane(1),
-			original->GetPlane(2),
-			output,useYCoCgForGradient,2,2);
+			FittingQuadSmooth(rejectFactor,
+				NULL,
+				original->GetPlane(1),
+				original->GetPlane(2),
+				output,useYCoCgForGradient,2,2);
 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("RGB16+8+4+GBMap.png",NULL);
-		mappedRGB->SavePNG("RGBField.png",NULL);
+			if (dump) {
+				output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+				mapSmoothTile->SavePNG("RGB16+8+4+GBMap.png",NULL);
+				mappedRGB->SavePNG("RGBFieldGB.png",NULL);
+			}
 
+			mapSmoothTile->SavePNG("Solve2D.png",NULL);
+		}
 
-		RegisterAndCreate2DLut();
+		if (!evaluateLUT) {
+#if 1
+			evaluateMap = NULL;
+			correlationPatternCount2D = 0;
 
-		StartCorrelationSearch(false); // 2D Mode
-//		output->Clear();
+//			RegisterAndCreate2DLut();
+			testedLUT = correlationPatternCount2D;
 
-		Correlation2DSearch(Mode_RG,original, output,3,3);
-		output->SavePNG("Post2DTileRG_8_8.png",NULL);
-		Correlation2DSearch(Mode_RG,original, output,2,2);
-		output->SavePNG("Post2DTileRG_4_4.png",NULL);
+		nextLut2DEval:
+			if (evaluateLUT2D) {
+				evaluateMap = new Plane(mapSmoothTile->GetWidth(),mapSmoothTile->GetHeight());
+				evaluateMap->Clear();
+			}
 
-		Correlation2DSearch(Mode_GB,original, output,3,3);
-		output->SavePNG("Post2DTileGB_8_8.png",NULL);
-		Correlation2DSearch(Mode_GB,original, output,2,2);
-		output->SavePNG("Post2DTileGB_4_4.png",NULL);
+			char EvaluateBuffer[1000];
+			if (evaluateLUT2D) {
+				LoadLUT2D(testedLUT);
+			} else {
+				RegisterAndCreate2DLut();
+			}
 
-		Correlation2DSearch(Mode_RB,original, output,3,3);
-		output->SavePNG("Post2DTileRB_8_8.png",NULL);
-		Correlation2DSearch(Mode_RB,original, output,2,2);
-		output->SavePNG("Post2DTileRB_4_4.png",NULL);
+			StartCorrelationSearch(false); // 2D Mode RG
+			isCaptureMode2D = false;
 
-		EndCorrelationSearch(false); // Header will be both 8 and 4 pixel tile stream...
-	//	Correlation3DSearch(YCoCgImg, output); // Test in YCoCb Space.
+			// 2D Correlation in RG  space.
+			Correlation2DSearch(Mode_RG,original, output,3,3);
+			if (dump) {
+				output->SavePNG("Post2DTileRG_8_8.png",NULL);
+			}
+			Correlation2DSearch(Mode_RG,original, output,2,2);
+			if (dump) {
+				output->SavePNG("Post2DTileRG_4_4.png",NULL);
+			}
+			if (evaluateLUT2D) {
+				deleteAllocated3DParts();
+			} else {
+				EndCorrelationSearch(false,3); // Header will be both 8 and 4 pixel tile stream...
+			}
 
+			StartCorrelationSearch(false); // 2D Mode GB
+			// 2D Correlation in GB  space.
+			Correlation2DSearch(Mode_GB,original, output,3,3);
+			if (dump) {
+				output->SavePNG("Post2DTileGB_8_8.png",NULL);
+			}
+			Correlation2DSearch(Mode_GB,original, output,2,2);
+			if (dump) {
+				output->SavePNG("Post2DTileGB_4_4.png",NULL);
+			}
+			if (evaluateLUT2D) {
+				deleteAllocated3DParts();
+			} else {
+				EndCorrelationSearch(false,6); // Header will be both 8 and 4 pixel tile stream...
+			}
 
+			StartCorrelationSearch(false); // 2D Mode RB
+			// 2D Correlation in RB  space.
+			Correlation2DSearch(Mode_RB,original, output,3,3);
+			if (dump) {
+				output->SavePNG("Post2DTileRB_8_8.png",NULL);
+			}
+			Correlation2DSearch(Mode_RB,original, output,2,2);
+			if (dump) {
+				output->SavePNG("Post2DTileRB_4_4.png",NULL);
+			}
+			isCaptureMode2D = false;
 
+			if (evaluateLUT2D) {
+				EvalLutEnded2D();
+				if (!evalLUTComplete()) {
+					deleteAllocated3DParts(); // Same memory block 2D/3D.
 
-		//
-		// R,G,B Gradient 4 pixels...
-		//
+					// evaluateMap->SaveAsPNG(EvaluateBuffer);
 
-		// Seperate Y,Co,Cg plane.
-		// TODO : Remove Tile from Original that were compressed.
-		//
-		FittingQuadSmooth(rejectFactor,
-			original->GetPlane(0),
-			NULL,
-			NULL,
-			output,useYCoCgForGradient,2,2);
+					delete evaluateMap;
+					goto nextLut2DEval;
+				}
+				//
+				deleteAllocated3DParts(); // Same memory block 2D/3D.
+			} else {
+				EndCorrelationSearch(false,5); // Header will be both 8 and 4 pixel tile stream...
+			}
+#endif
+		//	Correlation3DSearch(YCoCgImg, output); // Test in YCoCb Space.
 
-//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-//		mapSmoothTile->SavePNG("RGB16+8+4+Y Map.png",NULL);
-//		mappedRGB->SavePNG("RGBField.png",NULL);
+			//
+			// R,G,B Gradient 4 pixels...
+			//
 
-		FittingQuadSmooth(rejectFactor,
-			NULL,
-			original->GetPlane(1),
-			NULL,
-			output,useYCoCgForGradient,2,2);
+			// Seperate Y,Co,Cg plane.
+			// TODO : Remove Tile from Original that were compressed.
+			//
+#if 1
+			FittingQuadSmooth(rejectFactor,
+				original->GetPlane(0),
+				NULL,
+				NULL,
+				output,useYCoCgForGradient,2,2);
 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("RGB16+8+4+G Map.png",NULL);
-		mappedRGB->SavePNG("RGBField.png",NULL);
+	//		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+	//		mapSmoothTile->SavePNG("RGB16+8+4+Y Map.png",NULL);
+	//		mappedRGB->SavePNG("RGBField.png",NULL);
 
-		FittingQuadSmooth(rejectFactor,
-			NULL,
-			NULL,
-			original->GetPlane(2),
-			output,useYCoCgForGradient,2,2);
+			FittingQuadSmooth(rejectFactor,
+				NULL,
+				original->GetPlane(1),
+				NULL,
+				output,useYCoCgForGradient,2,2);
 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
-		mapSmoothTile->SavePNG("RGB16+8+4+B Map.png",NULL);
+			if (dump) {
+				output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+				mapSmoothTile->SavePNG("RGB16+8+4+G Map.png",NULL);
+				mappedRGB->SavePNG("RGBField.png",NULL);
+			}
 
-		mappedRGB->SavePNG("RGBField.png",NULL);
+			FittingQuadSmooth(rejectFactor,
+				NULL,
+				NULL,
+				original->GetPlane(2),
+				output,useYCoCgForGradient,2,2);
+#endif
 
-		mapSmoothTile->SavePNG("Map.png",NULL);
+			if (dump) {
+				output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB.png",NULL);
+				mapSmoothTile->SavePNG("RGB16+8+4+B Map.png",NULL);
+				mappedRGB->SavePNG("RGBField.png",NULL);
+				mapSmoothTile->SavePNG("Map.png",NULL);
+				output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB_PostSmooth.png",NULL);
+				mipmapMask->SaveAsPNG("PostQuadSmooth.png");
+				output->SavePNG("outputTileScaled.png",NULL);
+		//			output->savePNG("outputEncoder.png",NULL);
+		//			output->convertToYCoCg2RGB()->savePNG("outputEncoderRGB.png",NULL);
+			}
 
-		output->ConvertToYCoCg2RGB(useYCoCgForGradient)->SavePNG("outputEncoderRGB_PostSmooth.png",NULL);
+#if 0
+			char buffer[2000];
+			sprintf(buffer,"output\\%s.png",outputFile);
+			output->SavePNG(buffer,NULL);
 
-		mipmapMask->SaveAsPNG("PostQuadSmooth.png");
+			// Here we switch to another mode for 2 plane/1 plane
+			u8* tmpStream = new u8[original->GetWidth() * original->GetHeight() * 3];
+			u8* wrtStream = tmpStream;
+			wrtStream = DynamicTileAnalyze(wrtStream, original->GetPlane(0),mapSmoothTile->GetPlane(0),output->GetPlane(0));
+			if (dump) {
+				output->SavePNG("RDyn.png",NULL);
+			}
 
-		output->SavePNG("outputTileScaled.png",NULL);
-//			output->savePNG("outputEncoder.png",NULL);
-//			output->convertToYCoCg2RGB()->savePNG("outputEncoderRGB.png",NULL);
+			wrtStream = DynamicTileAnalyze(wrtStream, original->GetPlane(1),mapSmoothTile->GetPlane(1),output->GetPlane(1));
+			if (dump) {
+				output->SavePNG("GDyn.png",NULL);
+			}
+			wrtStream = DynamicTileAnalyze(wrtStream, original->GetPlane(2),mapSmoothTile->GetPlane(2),output->GetPlane(2));
+			if (dump) {
+				output->SavePNG("BDyn.png",NULL);
+			}
 
-		// Next Phase IN ORDER : 2D Correlation in RG  space.
-		// Next Phase IN ORDER : 2D Correlation in  GB space.
+			int sizeMax = original->GetWidth() * original->GetHeight() * 3;
+			u8* dstZ = new u8[sizeMax];
+			result = ZSTD_compress(dstZ, sizeMax, tmpStream, wrtStream - tmpStream, 18);
+				
+			printf(" %i -> %i\n",wrtStream - tmpStream, (int)result);
+			delete[] tmpStream;
+#endif
 
-		// Here we switch to another mode for 2 plane/1 plane
+		} else {
+			result = 0;
+		}
+
+		if (pStats) {
+			int totalGradients = pStats->loc.sizeBlock3DGradient + pStats->loc.sizeBlock2DGradient + pStats->loc.sizeBlock1DGradient;
+			int totalLUT       = pStats->loc.sizeBlock2DLUT + pStats->loc.sizeBlock3DLUT;
+			int total1DLUT     = result;
+			pStats->loc.compressedFileTotal = total1DLUT + totalGradients + totalLUT;
+			FILE* fGlobStat = fopen("globalStats.bin","wb");
+			if (fGlobStat) {
+				fwrite(pStats, sizeof(EncoderStats), 1, fGlobStat);
+				fclose(fGlobStat);
+			}
+
+			char buffer[2000];
+			sprintf(buffer,"%s.log.txt",outputFile);
+			fGlobStat = fopen(buffer,"wb");
+			if (fGlobStat) {
+				fprintf(fGlobStat,"--------------------------\n");
+				fprintf(fGlobStat,"totalPixelCount:%i\n"			,pStats->loc.totalPixelCount);
+				fprintf(fGlobStat,"pixelCountGradient16_16:%i\n"	,pStats->loc.pixelCountGradient16_16);
+				fprintf(fGlobStat,"pixelCountGradient16_8:%i\n"		,pStats->loc.pixelCountGradient16_8);
+				fprintf(fGlobStat,"pixelCountGradient8_16:%i\n"		,pStats->loc.pixelCountGradient8_16);
+				fprintf(fGlobStat,"pixelCountGradient8_8:%i\n"		,pStats->loc.pixelCountGradient8_8);
+				fprintf(fGlobStat,"pixelCountGradient4_8:%i\n"		,pStats->loc.pixelCountGradient4_8);
+				fprintf(fGlobStat,"pixelCountGradient8_4:%i\n"		,pStats->loc.pixelCountGradient8_4);
+				fprintf(fGlobStat,"pixelCountGradient4_4:%i\n"		,pStats->loc.pixelCountGradient4_4);
+				fprintf(fGlobStat,"pixelCount3DGradientTotal:%i\n"	,pStats->loc.pixelCount3DGradientTotal);
+				fprintf(fGlobStat,"sizeBlock3DGradient:%i\n"		,pStats->loc.sizeBlock3DGradient);
+				fprintf(fGlobStat,"pixelCount3D_Lut_16_8:%i\n"		,pStats->loc.pixelCount3D_Lut_16_8);
+				fprintf(fGlobStat,"pixelCount3D_Lut_8_16:%i\n"		,pStats->loc.pixelCount3D_Lut_8_16);
+				fprintf(fGlobStat,"pixelCount3D_Lut_8_8:%i\n"		,pStats->loc.pixelCount3D_Lut_8_8);
+				fprintf(fGlobStat,"pixelCount3D_Lut_8_4:%i\n"		,pStats->loc.pixelCount3D_Lut_8_4);
+				fprintf(fGlobStat,"pixelCount3D_Lut_4_8:%i\n"		,pStats->loc.pixelCount3D_Lut_4_8);
+				fprintf(fGlobStat,"pixelCount3D_Lut_4_4:%i\n"		,pStats->loc.pixelCount3D_Lut_4_4);
+				fprintf(fGlobStat,"pixelCount3DLUTTotal:%i\n"		,pStats->loc.pixelCount3DLUTTotal);
+				fprintf(fGlobStat,"sizeBlock3DLUT:%i\n"				,pStats->loc.sizeBlock3DLUT);
+				fprintf(fGlobStat,"pixelCountGradientRG_4_4:%i\n"	,pStats->loc.pixelCountGradientRG_4_4);
+				fprintf(fGlobStat,"pixelCountGradientGB_4_4:%i\n"	,pStats->loc.pixelCountGradientGB_4_4);
+				fprintf(fGlobStat,"pixelCountGradientRB_4_4:%i\n"	,pStats->loc.pixelCountGradientRB_4_4);
+				fprintf(fGlobStat,"pixelCount2DGradientTotal:%i\n"	,pStats->loc.pixelCount2DGradientTotal);
+				fprintf(fGlobStat,"sizeBlock2DGradient:%i\n"		,pStats->loc.sizeBlock2DGradient);
+				/*
+				fprintf(fGlobStat,"pixelCount2D_LutRG_8_8:%i\n"		,pStats->loc.pixelCount2D_LutRG_8_8);
+				fprintf(fGlobStat,"pixelCount2D_LutRG_4_4:%i\n"		,pStats->loc.pixelCount2D_LutRG_4_4);
+				fprintf(fGlobStat,"pixelCount2D_LutGB_8_8:%i\n"		,pStats->loc.pixelCount2D_LutGB_8_8);
+				fprintf(fGlobStat,"pixelCount2D_LutGB_4_4:%i\n"		,pStats->loc.pixelCount2D_LutGB_4_4);
+				fprintf(fGlobStat,"pixelCount2D_LutRB_8_8:%i\n"		,pStats->loc.pixelCount2D_LutRB_8_8);
+				fprintf(fGlobStat,"pixelCount2D_LutRB_4_4:%i\n"		,pStats->loc.pixelCount2D_LutRB_4_4);
+				*/
+				fprintf(fGlobStat,"pixelCount2DLUTTotal:%i\n"		,pStats->loc.pixelCount2DLUTTotal);
+				fprintf(fGlobStat,"sizeBlock2DLUT:%i\n"				,pStats->loc.sizeBlock2DLUT);
+				fprintf(fGlobStat,"pixelCount1DGradientTotal:%i\n"	,pStats->loc.pixelCount1DGradientTotal);
+				fprintf(fGlobStat,"sizeBlock1DGradient:%i\n"		,pStats->loc.sizeBlock1DGradient);
+				fprintf(fGlobStat,"pixelCount1D:%i\n"				,pStats->loc.pixelCount1D);
+				fprintf(fGlobStat,"compressedFileTotal:%i\n"		,pStats->loc.compressedFileTotal);
+
+				fprintf(fGlobStat,"-----Histogram 3D ----------\n");
+				for (int n=0; n < 256; n++) {
+					if (n!=0) { fprintf(fGlobStat,","); }
+					fprintf(fGlobStat,"%i",pStats->loc.histogram3D[n]);
+				}
+				fprintf(fGlobStat,"\n");
+				fprintf(fGlobStat,"-----Histogram 2D ----------\n");
+				for (int n=0; n < 2048; n++) {
+					if (n!=0) { fprintf(fGlobStat,","); }
+					fprintf(fGlobStat,"%i",pStats->loc.histogram2D[n]);
+				}
+				fprintf(fGlobStat,"\n");
+				fclose(fGlobStat);
+			}
+		}
+
 #if 0
 		chromaReduction();
 
@@ -7025,6 +8613,11 @@ void EncoderContext::convert(const char* outputFile) {
 #endif
 	
 //		output->ConvertToYCoCg2RGB(doConversionRGB2YCoCg)->SavePNG("outputEncoderRGB.png",NULL);
+
+		delete smoothMap;		smoothMap     = NULL;
+		delete mapSmoothTile;	mapSmoothTile = NULL;
+		delete mappedRGB;		mappedRGB     = NULL;
+		delete mipmapMask;		mipmapMask    = NULL;
 
 		Tag endBlk;
 		endBlk.tag32 = 0xDEADBEEF;

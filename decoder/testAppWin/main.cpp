@@ -55,16 +55,20 @@ int main()
 	// INIT LIBRARY
 	YAIK_LIB lib = YAIK_Init(8,NULL);
 	if (lib) {
-		u32 LUTSize;
-		u8* LUTData = LoadFile("../../encoder/vc_prj/LutFile.lut",LUTSize);
+		u32 LUTSize3D;
+		u32 LUTSize2D;
+		u8* LUTData3D = LoadFile("../../encoder/vc_prj/LutFile.lut",LUTSize3D);
+		u8* LUTData2D = LoadFile("../../encoder/vc_prj/LutFile2D.lut",LUTSize2D);
 		StartCounter();
-		YAIK_AssignLUT(lib,LUTData,LUTSize);
+		YAIK_AssignLUT(lib,LUTData3D,LUTSize3D);
+		YAIK_AssignLUT(lib,LUTData2D,LUTSize2D);
+
 		printf("Assign LUT : Millisecond %f\n",(float)GetCounter());
 
 
 		YAIK_SDecodedImage imageInfo;
 		u32 fileLength;
-		u8* fileData = LoadFile("../../encoder/vc_prj/myTestFile.yaik",fileLength);
+		u8* fileData = LoadFile("../../encoder/vc_prj/Aqours_43101005.png.yaik",fileLength);
 //		u8* pngFileData;
 //		u32 pngFileLength;
 		{
@@ -79,7 +83,7 @@ int main()
 		}
 
 		int n = 0;
-		for (int n=0; n < 1; n++) 
+		for (int n=0; n < 10; n++) 
 		{
 			printf("---%i----\n",n);
 

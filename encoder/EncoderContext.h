@@ -19,6 +19,167 @@ struct BoundingBox3D {
 	s16				z1;
 };
 
+struct LocalStats {
+	void Reset(int w, int h) {
+		totalPixelCount = w*h;
+		for (int n=0; n < 2048; n++) {
+			histogram2D[n] = 0;
+		}
+		for (int n=0; n < 256; n++) {
+			histogram3D[n] = 0;
+		}
+		pixelCountGradient16_16	= 0;
+		pixelCountGradient16_8	= 0;
+		pixelCountGradient8_16	= 0;
+		pixelCountGradient8_8	= 0;
+		pixelCountGradient4_8	= 0;
+		pixelCountGradient8_4	= 0;
+		pixelCountGradient4_4	= 0;
+
+		pixelCount3DGradientTotal	= 0;
+		sizeBlock3DGradient			= 0;
+
+		pixelCount3D_Lut_16_8	= 0;
+		pixelCount3D_Lut_8_16	= 0;
+		pixelCount3D_Lut_8_8	= 0;
+		pixelCount3D_Lut_8_4	= 0;
+		pixelCount3D_Lut_4_8	= 0;
+		pixelCount3D_Lut_4_4	= 0;
+
+
+		pixelCount3DLUTTotal	= 0;
+		sizeBlock3DLUT			= 0;
+
+		pixelCountGradientRG_4_4 = 0;
+		pixelCountGradientGB_4_4 = 0;
+		pixelCountGradientRB_4_4 = 0;
+
+		pixelCount2DGradientTotal = 0;
+		sizeBlock2DGradient = 0;
+
+		pixelCount1DGradientTotal = 0;
+		sizeBlock1DGradient = 0;
+
+		pixelCount2DLUTTotal	= 0;
+		sizeBlock2DLUT			= 0;
+		pixelCount1D			= 0;
+		compressedFileTotal		= 0;
+		tile3DCount				= 0;
+		pixelCount3D_3Bit		= 0;
+		pixelCount3D_4Bit		= 0;
+		pixelCount3D_5Bit		= 0;
+		pixelCount3D_6Bit		= 0;
+
+		pixelCount2D_Lut_8_8	= 0;
+		pixelCount2D_Lut_4_4	= 0;
+
+		pixelCount2D_3Bit		= 0;
+		pixelCount2D_4Bit		= 0;
+		pixelCount2D_5Bit		= 0;
+		pixelCount2D_6Bit		= 0;
+	}
+
+	u32 totalPixelCount;
+
+	// Reset between images.
+	u32 histogram2D[2048];
+	u32 histogram3D[256];
+
+	// 3D Gradient.
+	u32 pixelCountGradient16_16;
+	u32 pixelCountGradient16_8;
+	u32 pixelCountGradient8_16;
+	u32 pixelCountGradient8_8;
+	u32 pixelCountGradient4_8;
+	u32 pixelCountGradient8_4;
+	u32 pixelCountGradient4_4;
+
+	u32 pixelCount3DGradientTotal;
+	u32 sizeBlock3DGradient;
+
+	// 3D LUT
+	u32 pixelCount3D_Lut_16_8;
+	u32 pixelCount3D_Lut_8_16;
+	u32 pixelCount3D_Lut_8_8;
+	u32 pixelCount3D_Lut_8_4;
+	u32 pixelCount3D_Lut_4_8;
+	u32 pixelCount3D_Lut_4_4;
+
+	u32 pixelCount3DLUTTotal;
+
+	u32 tile3DCount;
+	u32 pixelCount3D_3Bit;
+	u32 pixelCount3D_4Bit;
+	u32 pixelCount3D_5Bit;
+	u32 pixelCount3D_6Bit;
+
+	u32 sizeBlock3DLUT;
+
+	// 2D Gradient
+	u32 pixelCountGradientRG_4_4;
+	u32 pixelCountGradientGB_4_4;
+	u32 pixelCountGradientRB_4_4;
+
+	u32 pixelCount2DGradientTotal;
+	u32 sizeBlock2DGradient;
+
+	// 2D LUT
+	u32	pixelCount2D_Lut_8_8;
+	u32	pixelCount2D_Lut_4_4;
+
+	u32	pixelCount2D_3Bit;
+	u32	pixelCount2D_4Bit;
+	u32	pixelCount2D_5Bit;
+	u32	pixelCount2D_6Bit;
+
+	u32 pixelCount2DLUTTotal;
+	u32 sizeBlock2DLUT;
+
+	// 1D Stream for now...
+	u32 pixelCount1DGradientTotal;
+	u32 sizeBlock1DGradient;
+
+	u32 pixelCount1D;
+	u32 compressedFileTotal;
+};
+
+struct EncoderStats {
+	EncoderStats() {
+		loc.Reset(0,0);
+		purcPixelGrad	= 0;
+		purcPixel3D		= 0;
+		purcPixel2DGrad	= 0;
+		purcPixel2D		= 0;
+		purcPixel1D		= 0;
+		for (int n=0; n < 2048; n++) {
+			histogram2D_global[n] = 0;
+		}
+		for (int n=0; n < 256; n++) {
+			histogram2D_global[n] = 0;
+		}
+	}
+
+	// Global.
+	u32 histogram2D_global[2048];
+	u32 histogram3D_global[256];
+	u32 purcPixelGrad;
+	u32 purcPixel3D;
+	u32 purcPixel2DGrad;
+	u32 purcPixel2D;
+	u32 purcPixel1D;
+
+	LocalStats loc;
+
+	void AddHistogramToGlobal() {
+		for (int n=0; n < 2048; n++) {
+			histogram2D_global[n] += loc.histogram2D[n];
+		}
+		for (int n=0; n < 256; n++) {
+			histogram2D_global[n] += loc.histogram2D[n];
+		}
+	}
+};
+
 struct EncoderContext {
 public:
 	EncoderContext()
@@ -50,9 +211,36 @@ public:
 	,corr3D_sizeT4_4Map			(NULL)
 	,corr3D_tileStreamTileType	(NULL)
 	,corr3D_colorStream			(NULL)
+	,pStats						(NULL)
+	,isCaptureMode3D	(false)
+	,isCaptureMode2D	(false)
+	,dumpImage			(false)
+	,evaluateLUT		(false)
+	,evaluateLUT2D		(false)
+	,useYCoCg			(false)
 	{
 
 	}
+
+	void LoadLUT(int posLoading);
+	void EvalLutEnded();
+	bool evalLUTComplete();
+
+	void LoadLUT2D(int posLoading);
+	void EvalLutEnded2D();
+
+	void deleteAllocated3DParts();
+
+
+	bool evaluateLUT;
+	bool evaluateLUT2D;
+
+	bool dumpImage;
+	int  testedLUT;
+	const char*	originalName;
+	Plane* evaluateMap;
+
+	bool useYCoCg; // For 3D tile
 
 	// Color block stream is swizzled.
 	bool isSwizzling;
@@ -80,7 +268,10 @@ public:
 	int boundY1;
 	int remainingPixels;
 
+	EncoderStats* pStats;
+
 	bool LoadImagePNG		(const char* name);
+	void Convert			(const char* name, const char* outputFile, bool dump);
 	void SaveTo2RGB			(bool doConversion, const char* optionnalFileName = NULL);
 	void SaveAsYCoCg		(const char* optionnalFileName = NULL);
 	void Release			();
@@ -158,7 +349,7 @@ protected:
 	void RegisterAndCreate3DLut();
 	void RegisterAndCreate2DLut();
 	void StartCorrelationSearch(bool is3D);
-	void EndCorrelationSearch(bool is3D);
+	void EndCorrelationSearch(bool is3D, u8 component);
 	void Correlation3DSearch(Image* input, Image* output, int tileSizeX, int tileSizeY);
 	void Correlation2DSearch(PlaneMode planeMode,Image* input, Image* output, int tileSizeX, int tileSizeY);
 
@@ -185,6 +376,8 @@ protected:
 
 		int			 equCount;
 		int   sampleCount;
+
+		void Clear();
 
 		// Common 2D/3D
 		s16	  xFactor6Bit[64];
@@ -249,11 +442,72 @@ protected:
 			color[1] = g;
 			color[2] = b;
 			acceptScore = acceptanceScore;
+			Clear();
 			BuildDistanceField2D();
 		}
 
-		void Set2DPointCloud(float acceptanceScore, int* ptsXY, int ptsCount) {
-			// TODO
+		void Set2DPointCloud(float acceptanceScore, u8* ptsXY, int ptsCount) {
+			acceptScore = acceptanceScore;
+
+			Clear();
+
+			// 1,2,4,8 (6,5,4,3 bits)
+			for (int pts =0; pts < ptsCount; pts++) {
+				int idxPts = pts * 2;
+				xFactor6Bit[pts] = ptsXY[idxPts  ];
+				yFactor6Bit[pts] = ptsXY[idxPts+1];
+			}
+
+			for (int pts =0; pts < ptsCount; pts += 2) {
+				int idxPts = pts * 2;
+				xFactor5Bit[pts>>1] = ptsXY[idxPts  ];
+				yFactor5Bit[pts>>1] = ptsXY[idxPts+1];
+			}
+
+			for (int pts =0; pts < ptsCount; pts += 4) {
+				int idxPts = pts * 2;
+				xFactor4Bit[pts>>2] = ptsXY[idxPts  ];
+				yFactor4Bit[pts>>2] = ptsXY[idxPts+1];
+			}
+
+			for (int pts =0; pts < ptsCount; pts += 8) {
+				int idxPts = pts * 2;
+				xFactor3Bit[pts>>3] = ptsXY[idxPts  ];
+				yFactor3Bit[pts>>3] = ptsXY[idxPts+1];
+			}
+
+			for (int step=0; step < 4; step++) {
+				// Scan whole space.
+				for (int y=0; y < 64; y++) {
+					for (int x=0; x < 64; x++) {
+
+						int minDist = 999999999;
+
+						// Find closest point.
+						for (int pts =0; pts < ptsCount; pts += (1<<step)) {
+							int idxPts = pts * 2;
+							int px = ptsXY[idxPts  ];
+							int py = ptsXY[idxPts+1];
+
+							int dx = x-px;
+							int dy = y-py;
+
+							int dist = (dx*dx) + (dy*dy);
+							if (dist < minDist) {
+								minDist = dist;
+								int idx3d = x + (y<<6);
+								distanceField2D[idx3d] = dist;
+								switch (step) {
+								case 0: position6Bit2D[idx3d] = pts;    break;
+								case 1: position5Bit2D[idx3d] = pts>>1; break;
+								case 2: position4Bit2D[idx3d] = pts>>2; break;
+								case 3: position3Bit2D[idx3d] = pts>>3; break;
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 
 		void EvaluateStart2D() {
@@ -302,17 +556,19 @@ protected:
 			int res = -1;
 			float minScore = 999999999.0f;
 			for (int f=0; f < 8; f++) {
+				/*
 				float avg = sumDistance2D[f] / (float)(sampleCount*1024.0f);
 				float stdDev = 0.0f;
 				for (int n=0; n < sampleCount; n++) {
 					float diffAvg = avg - (distSamples[n][f]/1024.0f);	
 					stdDev += (diffAvg * diffAvg);
 				}
-				if (avg < minScore) {
+				*/
+				if (sumDistance2D[f] < minScore) {
 					// Return only the best score...
-					score = avg;
+					score = sumDistance2D[f];
 					minScore = score;
-					stdDeviation = stdDev / sampleCount;
+//					stdDeviation = stdDev / sampleCount;
 					res = f;
 				}
 			}
@@ -339,12 +595,11 @@ protected:
 			color[1] = g;
 			color[2] = b;
 			acceptScore = acceptanceScore;
+			Clear();
 			BuildDistanceField3D();
 		}
 
-		void Set3DPointCloud(float acceptanceScore, int* ptsXYZ, int ptsCount) {
-			// TODO
-		}
+		void Set3DPointCloud(float acceptanceScore, u8* ptsXYZ, u8 ptsCount);
 
 		void EvaluateStart3D() {
 			for (int n=0; n < 6*8; n++) {
@@ -445,15 +700,16 @@ protected:
 	EvalCtx2D	correlationPattern2D[2048];
 	int			correlationPatternCount3D;
 	int			correlationPatternCount2D;
-	void Create2DCorrelationPatterns();
+	bool		isCaptureMode3D;
+	bool		isCaptureMode2D;
 
+	void Create2DCorrelationPatterns();
+	void Load3DPattern(const char* fileName);
+	void Load2DPattern(const char* fileName);
 
 	Mode computeValues2D(int flipMode, int px,int py, float* mapX, float* mapY, int pixCnt, BoundingBox bb, EvalCtx2D& ev, int& minSumErrDiff);
 	Mode computeValues3D(int tileSizeX, int tileSizeY, u8* mask, int flipMode, Image* input,int px,int py, BoundingBox3D bb, EvalCtx3D& ev, int& minSumErrDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/);
 	Mode computeValues2D(int planeMode, int tileSizeX, int tileSizeY, u8* mask, int flipMode, Image* input,int px,int py, BoundingBox   bb, EvalCtx2D& ev, int& minSumErrDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/);
-
-public:
-	void convert(const char* outputFile);
 };
 
 #endif
