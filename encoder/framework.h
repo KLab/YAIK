@@ -116,7 +116,7 @@ public:
 	int    GetPixelValue		(int x, int y, bool& isOutside) {
 		isOutside = false;
 		if (x < 0 || x >= w) { isOutside = true; if (x>=w) { x=w-1; } if (x < 0) { x = 0;} }
-		if (y < 0 || y >= h) { isOutside = true; if (x>=w) { y=h-1; } if (y < 0) { y = 0;} }
+		if (y < 0 || y >= h) { isOutside = true; if (y>=h) { y=h-1; } if (y < 0) { y = 0;} }
 		return pixels[x + y * w];
 	}
 
@@ -198,10 +198,10 @@ public:
 	
 	inline void		GetPixel	(int x, int y, int* rgb, bool& isOutside) {
 		isOutside = false;
-		if (x < 0) { isOutside=true; x = 0;   }
-		if (x > w) { isOutside=true; x = w-1; }
-		if (y < 0) { isOutside=true; y = 0;   }
-		if (y > h) { isOutside=true; y = h-1; }
+		if (x <  0) { isOutside=true; x = 0;   }
+		if (x >= w) { isOutside=true; x = w-1; }
+		if (y <  0) { isOutside=true; y = 0;   }
+		if (y >= h) { isOutside=true; y = h-1; }
 
 		int index = x + y*w;
 		rgb[0] = planes[0]->GetPixels()[index];

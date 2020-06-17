@@ -6092,7 +6092,7 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 
 								u8* src = bitSrc;
 
-								printf("Tile:%i [%i,%i,%i]->[%i,%i,%i]\n",corr3D_tileStreamTileType[streamTypeCnt-1],(int)bb3.x0,(int)bb3.y0,(int)bb3.z0,(int)bb3.x1,(int)bb3.y1,(int)bb3.z1);
+//								printf("Tile:%i [%i,%i,%i]->[%i,%i,%i]\n",corr3D_tileStreamTileType[streamTypeCnt-1],(int)bb3.x0,(int)bb3.y0,(int)bb3.z0,(int)bb3.x1,(int)bb3.y1,(int)bb3.z1);
 
 								for (; vx < countX; vx++) {
 									for (int ty=0; ty < tileSizeY; ty++) {
@@ -6120,7 +6120,7 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 												YCoCgPostoRGB(r,g,b,r,g,b);
 											}
 
-											printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",x,y,pixelId,idxTbl,tbl[idxTbl  ],tbl[idxTbl+1],tbl[idxTbl+2]);
+//											printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",x,y,pixelId,idxTbl,tbl[idxTbl  ],tbl[idxTbl+1],tbl[idxTbl+2]);
 											pixelId++;
 
 											output->SetPixel(tx+x+(vx*8),ty+y,r,g,b);
@@ -6506,15 +6506,7 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 								pStats->loc.tile3DCount++;
 							}
 #if 1
-							printf("Tile:%i [%i,%i]->[%i,%i]\n",corr3D_tileStreamTileType[streamTypeCnt-1],(int)bb2.x,(int)bb2.y,(int)bb2.w,(int)bb2.h);
-
-							/*
-							printf("Tile[%i,%i] PixelCnt:%i [%i Bit,Mode:%i,Pattern:%i] (PlaneAB:[%i,%i]->[%i,%i])\n", 
-								x,y,pixelsInTile,   
-								bitMode+3,foundM8,foundE, 
-									bb2.x,bb2.y,
-									bb2.w,bb2.h
-							);*/
+//							printf("Tile:%i [%i,%i]->[%i,%i]\n",corr3D_tileStreamTileType[streamTypeCnt-1],(int)bb2.x,(int)bb2.y,(int)bb2.w,(int)bb2.h);
 #endif
 
 #if 1
@@ -6628,7 +6620,7 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 												int a = bb2.x + ((dt[0]*tbl[idxTbl  ]) / FACTOR);
 												int b = bb2.y + ((dt[1]*tbl[idxTbl+1]) / FACTOR);
 
-												printf("%i,%i(%i) -> [%i] -> [%i,%i]\n",x,y,pixelId,idxTbl,tbl[idxTbl  ],tbl[idxTbl+1]);
+//												printf("%i,%i(%i) -> [%i] -> [%i,%i]\n",x,y,pixelId,idxTbl,tbl[idxTbl  ],tbl[idxTbl+1]);
 												pixelId++;
 
 												int targetX = tx+x+(vx*8);
@@ -6758,9 +6750,6 @@ void EncoderContext::StartCorrelationSearch(bool is3D) {
 void EncoderContext::EndCorrelationSearch(bool is3D, u8 component) {
 	int wi   = original->GetWidth();
 	int hi	= original->GetHeight();
-
-	int sizeZStd = 10000000;
-	u8* pZStdStream = new u8[10000000];
 
 	int sizeT16_8Map	= BitmapSwizzleMapSize(4,3, wi,hi);
 	int sizeT8_16Map	= BitmapSwizzleMapSize(3,4, wi,hi);
@@ -7031,8 +7020,6 @@ void EncoderContext::EndCorrelationSearch(bool is3D, u8 component) {
 	delete[] ZStdT4_4Map;
 
 	deleteAllocated3DParts();
-
-	delete [] pZStdStream;
 }
 
 void EncoderContext::deleteAllocated3DParts() {
@@ -7571,6 +7558,136 @@ void EncoderContext::RegisterAndCreate2DLut() {
 	delete[] stream;
 }
 
+u8* tbl1D6Bit = new u8[100000];
+u8* tbl1D5Bit = new u8[100000];
+u8* tbl1D4Bit = new u8[100000];
+u8* tbl1D3Bit = new u8[100000];
+u8* tbl1D2Bit = new u8[100000];
+
+int tbl1D2BitCnt = 0;
+int tbl1D3BitCnt = 0;
+int tbl1D4BitCnt = 0;
+int tbl1D5BitCnt = 0;
+int tbl1D6BitCnt = 0;
+
+u8* streamType = new u8[100000];
+u8* pType      = streamType;
+
+u8* params     = new u8[100000];
+u8* pParams    = params;
+
+u16* LUTID     = new u16[100000];
+u16* pLUTSs    = LUTID;
+
+/*
+	Natural :
+	[Natural] (No format) (Tile 0 ?)
+		[Base 6 Bit] (Store in Min/Max Stream)
+
+	[Lut]     (Format 2/3/4/5 bit)
+		[Min + Max]
+		[Lut ID]
+ */
+u64 mask2Bit[10000];
+u64 mask3Bit[10000];
+u64 mask4Bit[10000];
+u64 mask5Bit[10000];
+
+int cntTbl2B = 0;
+int cntTbl3B = 0;
+int cntTbl4B = 0;
+int cntTbl5B = 0;
+
+int findMask(u64 searchMask, int format) {
+	u64* pmaskTbl;
+	int  countTbl;
+	switch (format) {
+	case 2:
+		pmaskTbl = mask2Bit;
+		countTbl = cntTbl2B;
+		break;
+	case 3:
+		pmaskTbl = mask3Bit;
+		countTbl = cntTbl3B;
+		break;
+	case 4:
+		pmaskTbl = mask4Bit;
+		countTbl = cntTbl4B;
+		break;
+	case 5:
+		pmaskTbl = mask5Bit;
+		countTbl = cntTbl5B;
+		break;
+	default:
+		printf("ERROR\n");
+		return 0;
+	}
+
+	for (int n=0; n < countTbl; n++) {
+		if ((pmaskTbl[n] & searchMask) == searchMask) {
+			return n;
+		}
+	}
+
+	// New Entry...
+	pmaskTbl[countTbl] = searchMask;
+	switch (format) {
+	case 2: cntTbl2B++; break;
+	case 3: cntTbl3B++; break;
+	case 4: cntTbl4B++; break;
+	case 5: cntTbl5B++; break;
+	}
+	return countTbl;
+}
+
+// Returns position of the only set bit in 'n' 
+int findPosition(u64 n) 
+{
+    unsigned i = 1, pos = 1; 
+  
+    // Iterate through bits of n till we find a set bit 
+    // i&n will be non-zero only when 'i' and 'n' have a set bit 
+    // at same position 
+    while (!(i & n)) { 
+        // Unset current bit and set the next bit in 'i' 
+        i = i << 1; 
+  
+        // increment position 
+        ++pos; 
+    } 
+  
+    return pos; 
+}
+
+int GetBitCount(u64 v) {
+	u64 c; // store the total here
+	static const int S[] = {1, 2, 4, 8, 16, 32}; // Magic Binary Numbers
+	static const u64 B[] = {0x5555555555555555ULL, 0x3333333333333333ULL, 0x0F0F0F0F0F0F0F0FULL, 0x00FF00FF00FF00FFULL, 0x0000FFFF0000FFFFULL, 0x00000000FFFFFFFFULL};
+
+	c = v - ((v >> 1) & B[0]);
+	c = ((c >> S[1]) & B[1]) + (c & B[1]);
+	c = ((c >> S[2]) + c) & B[2];
+	c = ((c >> S[3]) + c) & B[3];
+	c = ((c >> S[4]) + c) & B[4];
+	c = ((c >> S[5]) + c) & B[5];
+	return c;
+}
+
+int GetBitIndex(u64 mask, int value, int format) {
+	u64 maskClip = (1ULL<<(value+1))-1;
+	u64 countBits = mask & maskClip;
+
+	return GetBitCount(countBits);
+}
+
+void TestCompress(u8* start, u8* end) {
+	int sizeMax = (end - start) * 3;
+	u8* dstZ = new u8[sizeMax];
+	u64 result = ZSTD_compress(dstZ, sizeMax, start, end-start, 18);
+	printf(" %i -> %i\n",end-start, (int)result);
+	delete[] dstZ;
+}
+
 u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
 	u8* startStream = stream;
 	int w = src->GetWidth();
@@ -7578,6 +7695,7 @@ u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
 
 	u8 histo[64]; memset(histo,0,sizeof(u8)*64);
 	u8 histo256[256];
+	u8 values[256];
 
 	int min = 99999;
 	int max = -99999;
@@ -7593,6 +7711,8 @@ u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
 			memset(histo256,0,sizeof(u8)*256);
 			int minV8 = 99999;
 			int maxV8 = -99999;
+			int minV6 = 99999;
+			int maxV6 = -99999;
 
 			// 4x4 => 4 tiles
 			bool isOut;
@@ -7605,14 +7725,20 @@ u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
 							for (int ix =0; ix < 4; ix++) {
 
 								int v = src->GetPixelValue(x+x2+ix,y+y2+iy,isOut);
-								pixelCount++;
 
 								// Histogram
-								int idx = v >> 2; // Reduce 6 bit
+								int idx = (v+1) >> 2; // Reduce 6 bit,rounding correct.
+								if (idx > 63) { idx = 63; } // Special 255 rounding.
+
 								histo[idx]++;
 								histo256[v]++;
-								if (minV8 > v) { minV8 = v; }
-								if (maxV8 < v) { maxV8 = v; }
+								values[pixelCount] = idx;
+								pixelCount++;
+
+								if (minV8 > v)   { minV8 = v; }
+								if (maxV8 < v)   { maxV8 = v; }
+								if (minV6 > idx) { minV6 = idx; }
+								if (maxV6 < idx) { maxV6 = idx; }
 							}
 						}
 					}
@@ -7621,7 +7747,137 @@ u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
 
 			if (pixelCount > 0) {
 				// Per 8x8 tile :
+				int unique = 0;
+				for (int n=0; n < 64; n++) {
+//					printf("%x,",histo[n]);
+					if (histo[n] != 0) {
+						unique++;
+					}
+				}
+				printf("\n");
 
+				int delta  = (maxV6 - minV6)+1; // 
+				int deltaV = (maxV6 - minV6); // 
+
+				const char* type = "6 Bit";
+				if (unique <= 33) {
+					type = "5 Bit";
+					if (unique <= 17) {
+						type = "4 Bit";
+						if (unique <= 9) {
+							type = "3 Bit";
+							if (unique <= 4) {
+								type = "2 Bit";
+							}
+						}
+					}
+				}
+
+
+				// Necessary bit for encoding...
+
+				// [TODO : Possible trick to 'merge' close colors. (rounding etc..., depending on range, etc...)
+
+				int format = 4; // 6 Bit.
+				int range        = 64;
+				if (unique <= 32) {
+					format = 3; // 5 Bit.
+					range = 32;
+					if (unique <= 16) {
+						format = 2; // 4 bit.
+						range = 16;
+						if (unique <= 8) {
+							format = 1; // 3 bit.
+							range = 8;
+							if (unique <= 4) {
+								format = 0; // 2 Bit.
+								range = 4;
+							}
+						}
+					}
+				}
+
+				int needCompress = delta > range;
+//				printf(" (Pix:%i, Unique:%i , min:%i, max:%i (Delta:%i) %s %s\n",pixelCount,unique, minV6,maxV6,maxV6-minV6, type, needCompress ? "(Compress)" : "Natural" );
+
+				// Fit into linear natural range...
+				if (!needCompress) {
+					*pType++	= format; // Natural [0..4]
+					*pParams++	= minV6;
+
+					switch (format) {
+					case 0:
+						for (int n=0; n<pixelCount; n++) { tbl1D2Bit[tbl1D2BitCnt++] = values[n] - minV6; }
+						break;
+					case 1:
+						for (int n=0; n<pixelCount; n++) { tbl1D3Bit[tbl1D3BitCnt++] = values[n] - minV6; }
+						break;
+					case 2:
+						for (int n=0; n<pixelCount; n++) { tbl1D4Bit[tbl1D4BitCnt++] = values[n] - minV6; }
+						break;
+					case 3:
+						for (int n=0; n<pixelCount; n++) { tbl1D5Bit[tbl1D5BitCnt++] = values[n] - minV6; }
+						break;
+					case 4:
+						for (int n=0; n<pixelCount; n++) { tbl1D6Bit[tbl1D6BitCnt++] = values[n] - minV6; }
+						break;
+					}
+				} else {
+					// 2..5 bit only -> 5..8, (6 bit always natural)
+					*pType++	= format + 5; // 
+
+					// Try to compress into LUT.
+					u64 thisLutMask = 0;
+
+					u8 normValues[64];
+
+					for (int n=0; n < pixelCount; n++) {
+						int idx      = ((values[n] - minV6) * 63) / deltaV; // Normalize Masks.
+						normValues[n] = idx;
+						thisLutMask |= (1ULL<<idx);
+					}
+
+					*pParams++	= minV6;
+					*pParams++	= deltaV;
+
+					if (unique <= 4) {
+						// 2 Bit
+						*pLUTSs++ = findMask(thisLutMask,2);
+					} else {
+						if (unique <= 8) {
+							// 3 Bit
+							*pLUTSs++ = findMask(thisLutMask,3);
+						} else {
+							if (unique <= 16) {
+								// 4 Bit
+								*pLUTSs++ = findMask(thisLutMask,4);
+							} else {
+								// 5 Bit
+								*pLUTSs++ = findMask(thisLutMask,5);
+							}
+						}
+					}
+					
+					switch (format) {
+					case 0:
+						for (int n=0; n<pixelCount; n++) { tbl1D2Bit[tbl1D2BitCnt++] = GetBitIndex(thisLutMask,normValues[n],2); }
+						break;
+					case 1:
+						for (int n=0; n<pixelCount; n++) { tbl1D3Bit[tbl1D3BitCnt++] = GetBitIndex(thisLutMask,normValues[n],3); }
+						break;
+					case 2:
+						for (int n=0; n<pixelCount; n++) { tbl1D4Bit[tbl1D4BitCnt++] = GetBitIndex(thisLutMask,normValues[n],4); }
+						break;
+					case 3:
+						for (int n=0; n<pixelCount; n++) { tbl1D5Bit[tbl1D5BitCnt++] = GetBitIndex(thisLutMask,normValues[n],5); }
+						break;
+					default:
+						printf("ERROR\n");
+						break;
+					}
+				}
+
+#if 0
 				// Extract Min-Max, First and Second.
 				int idxBestFirst = -1;
 				int valBestFirst = -1;
@@ -7667,7 +7923,6 @@ u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
 						maxIdx = n;
 					}
 				}
-
 						
 				// outputValue = (idxBestFirst << 2) + 2;  (+2 ?) Compute some rounding ?
 
@@ -7725,6 +7980,7 @@ u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
 						}
 					}
 				}
+#endif
 
 				totalPixel += pixelCount;
 
@@ -7739,6 +7995,16 @@ u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
 			}
 		}
 	}
+
+	TestCompress(tbl1D6Bit,&tbl1D6Bit[tbl1D6BitCnt]);
+	TestCompress(tbl1D5Bit,&tbl1D5Bit[tbl1D5BitCnt]);
+	TestCompress(tbl1D4Bit,&tbl1D4Bit[tbl1D4BitCnt]);
+	TestCompress(tbl1D3Bit,&tbl1D3Bit[tbl1D3BitCnt]);
+	TestCompress(tbl1D2Bit,&tbl1D2Bit[tbl1D2BitCnt]);
+	TestCompress(streamType,pType);
+	TestCompress(params,pParams);
+	TestCompress((u8*)LUTID,(u8*)pLUTSs);
+
 	printf("Plane : %i Pixel (0:%i, 1:%i)\n", totalPixel, total0, total1);
 	return stream;
 }
@@ -8275,7 +8541,7 @@ void EncoderContext::Convert(const char* source, const char* outputFile, bool du
 		//			output->convertToYCoCg2RGB()->savePNG("outputEncoderRGB.png",NULL);
 			}
 
-#if 0
+#if 1
 			char buffer[2000];
 			sprintf(buffer,"output\\%s.png",outputFile);
 			output->SavePNG(buffer,NULL);
