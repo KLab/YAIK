@@ -172,8 +172,10 @@ struct HeaderSmoothMap {
 struct HeaderGradientTile {
 	BoundingBox		bbox;
 	u32				streamBitmapSize;				// Decompressed size estimated from bbox and type.
-	u32				streamRGBSize;
+	u32				streamRGBSizeZStd;
+	u32				streamRGBSizeCustomCompressor;
 	u32				streamRGBSizeUncompressed;
+	u8				colorCompression;
 	u8				version;
 
 	// Note : 
@@ -326,6 +328,7 @@ struct HeaderTile3D {
 	u16 sizeT4_4MapCmp;
 
 	u8  component;
+	u8  compressionRateColor;
 
 	// + Stream 3 Bit
 	// + Stream 4 Bit
@@ -341,6 +344,23 @@ struct HeaderTile3D {
 	// + T4_4  Tile Map
 };
 
+struct Header1D {
+	u32 streamPixelBit;
+	u32 streamPixelUncmp;
+	u32 streamTypeCnt;
+	u32 streamTypeUncmp;
+
+	u8  compressionColor;
+	u8  compressionRange;
+	u8  version;
+};
+
 #define EncodeTileType(t,r,b)		(((t)<<13)|((r)<<7)|(b))
+
+/*
+	inputSize is real input buffer size.
+	inputBufferSize is for security reason. It is the max CPU can read without trouble.
+ */
+bool PaletteDecompressor(u8* input, int inputSize, int inputBufferSize, u8* output, int outputSize, u8 colorCompression);
 
 #endif // YAIK_PRIVATE_HEADER

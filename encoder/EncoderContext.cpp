@@ -3078,9 +3078,12 @@ void EncoderContext::DumpTileRGB() {
 						if (tileMask[idxM] != 0) { continue; }
 
 						original->GetPixel(x+xp,y+yp,rgb,isOutside);
-						int r = rgb[0]>>2;
-						int g = rgb[1]>>2;
-						int b = rgb[2]>>2;
+						
+						// Convert6Bit(rgb);
+
+						int r = rgb[0];
+						int g = rgb[1];
+						int b = rgb[2];
 
 						// Origin.
 						int lr = rgb[0] - bb3.x0;
@@ -3172,8 +3175,511 @@ void EncoderContext::DumpTileRGB() {
 
 int Round6(int u8V) {
 //	return u8V;
+//	u8V++;
+//	if (u8V > 255) { u8V = 255; }
 	int res = u8V>>2;
 	return (res<<2) | (res>>4);
+}
+
+int CompressF(int u8V, int rate) {
+	// With proper rounding.
+	return ((u8V * rate) + 127)/255;
+}
+
+int UncompressF(int u8V, int rate) {
+	// Use fast mul inverse in decoder, so need to have same exact computation if we need to compare.
+	int invMul       = rate ? (255<<16) / rate : (255<<16);
+	return (u8V * invMul) >> 16;
+}
+
+int Round6P(int u8V) {
+	u8V++;
+	if (u8V > 255) { u8V = 255; }
+	int res = u8V>>2;
+	return (res<<2) | (res>>4);
+}
+
+struct col {
+	int ref;
+	int dr;
+	int dg;
+	int db;
+};
+
+col CodeRGB[100000];
+int CodeCount = 0;
+
+#include <stdio.h>
+#include <stdlib.h>
+
+int compCode (const void * elem1, const void * elem2) 
+{
+    col* f = ((col*)elem1);
+    col* s = ((col*)elem2);
+    if (f->ref < s->ref) return  1;
+    if (f->ref > s->ref) return -1;
+    return 0;
+}
+
+void registerCodeBook(int diffR, int diffG, int diffB) {
+	// 1. Register new code
+	// 2. Increment ref counter if already found.
+	for (int n=0; n < CodeCount; n++) {
+		if ((CodeRGB[n].dr == diffR) && (CodeRGB[n].dg == diffG) && (CodeRGB[n].db == diffB)) {
+			CodeRGB[n].ref++;
+			return;
+		}
+	}
+
+	CodeRGB[CodeCount].dr = diffR;
+	CodeRGB[CodeCount].dg = diffG;
+	CodeRGB[CodeCount].db = diffB;
+	CodeRGB[CodeCount].ref= 0;
+	CodeCount++;
+}
+
+int  FindCodeBook(int diffR,int diffG,int diffB) {
+	for (int n=0; n < 64; n++) {
+		if ((CodeRGB[n].dr == diffR) && (CodeRGB[n].dg == diffG) && (CodeRGB[n].db == diffB)) {
+			return n;
+		}
+	}
+	return -1;
+}
+
+#define DEBUG_COMPRESSOR (0)
+
+bool PaletteCompressor(u8* input, int size, u8* output, u32* maxSize) {
+	bool error = false;
+	int streamIdx = 0;
+	int lmaxSize  = *maxSize;
+
+	int entryCol  = size / 3;
+
+	u8* decomp = new u8[size];
+	u8* decompStm = decomp;
+
+	/*  Palette compressed to 6:6:6 already
+	for (int n=0; n < size; n++) {
+		input[n] >>= 1;
+	}
+	*/
+
+	// Special null code, better be at top.
+	CodeCount = 0; // Reset table.
+	registerCodeBook(0,0,0);
+
+	#define WriteRAW(v)					if (streamIdx < lmaxSize) { output[streamIdx++] = (v); } else { error = true; goto exit; }
+	#define SelectAnotherColor(colRef)	if (streamIdx < lmaxSize) { output[streamIdx++] = 0xC0 | ((colRef) & 0x3F); } else { error = true; goto exit; }
+	#define WriteCodeBook(codeIndex)	if (streamIdx < lmaxSize) { output[streamIdx++] = (codeIndex) & 0x7F; } else { error = true; goto exit; }
+
+	//
+	// Phase 1 : Build Best Code Book. (limit to 128 entries)
+	//           Include a search window for smallest code book already.
+	//
+	u8* pPix = input;
+	for (int n=1; n < entryCol; n++) {
+		u8* pix = &input[n*3];
+		int prevStart = n-64; if (prevStart < 0) { prevStart = 0; }
+
+		int distMin = 999999999;
+		int bR,bG,bB; // Best result.
+		for (int prev= prevStart; prev < n; prev++) {
+			int idx = prev*3;
+			int dR = pix[0]-pPix[idx];
+			int dG = pix[1]-pPix[idx+1];
+			int dB = pix[2]-pPix[idx+2];
+			int ldist = dR*dR + dG*dG + dB*dB; // Positive distance.
+			if (ldist < distMin) {
+				distMin = ldist;
+				bR = dR;
+				bG = dG;
+				bB = dB;
+			}
+		}
+
+		registerCodeBook(bR,bG,bB);
+	}
+#if DEBUG_COMPRESSOR
+	printf("-->Found %i Delta Code Book\n",CodeCount);
+#endif
+
+	// Keep code 0,0,0 at top anyway. (normally, all contents should have a 0,0,0.
+    qsort (&CodeRGB[1], CodeCount-1, sizeof(col), compCode);
+	
+	int finalCodeCount = (CodeCount > 128) ? 128 : CodeCount;
+
+	u8* prevCol = decompStm;
+
+	// Code Book Header
+	WriteRAW(finalCodeCount);
+
+	for (int n=0; n < finalCodeCount; n++) {
+		WriteRAW(CodeRGB[n].dr);
+		WriteRAW(CodeRGB[n].dg);
+		WriteRAW(CodeRGB[n].db);
+	}
+
+	// Write first color.
+	WriteRAW(input[0]);
+	WriteRAW(input[1]);
+	WriteRAW(input[2]);
+
+	*decompStm++ = input[0];
+	*decompStm++ = input[1];
+	*decompStm++ = input[2];
+
+	//
+	// Phase 2 : Encode the color, when the delta is not found in code book, use another strategy :
+	//           Many encoding possibilities... let's see.
+	//           
+
+
+	for (int n=1; n < entryCol; n++) {
+		u8* pix = &input[n*3];
+		int prevStart = n-65; if (prevStart < 0) { prevStart = 0; }
+
+		int distMin = 999999999;
+		int bR,bG,bB; // Best result.
+		bool done = false;
+
+		int bestIndexCodeBook = 999;
+		int bestDistance = 0;
+
+#if DEBUG_COMPRESSOR
+		printf("Color %i (%i,%i,%i) : ",n,pix[0],pix[1],pix[2]);
+#endif
+
+		for (int prev= (n-1); prev >= prevStart; prev--) {
+			int idx = prev*3;
+			int dR = pix[0]-pPix[idx+0];
+			int dG = pix[1]-pPix[idx+1];
+			int dB = pix[2]-pPix[idx+2];
+
+			int index = FindCodeBook(dR,dG,dB);
+			if (index >= 0) {
+				if (prev == (n-1)) {
+#if DEBUG_COMPRESSOR
+					printf("=> Add codebook[%i](%i,%i,%i) to previous color.\n",index,dR,dG,dB);
+#endif
+					// Compare to previous color directly...
+					WriteCodeBook(index);
+					done = true;
+					*decompStm++ = prevCol[0] + dR;
+					*decompStm++ = prevCol[1] + dG;
+					*decompStm++ = prevCol[2] + dB;
+					prevCol = &decompStm[-3];
+					break;
+				} else {
+					int distance = ((n-prev)-2);
+					// [TODO] Question : Find the most compressable JUMP + CodeBook index... ? => RDO
+					// For now : Choose between closest jump + whatever index.
+					//                          best    jump + smallest index.
+
+					// Closest jump + whatever index...
+					// -1..
+					if (distance < 64) {
+						if (index < bestIndexCodeBook) {
+							bestIndexCodeBook = index;
+							bestDistance      = distance;
+							done              = true;
+						}
+						// No break -> Continue to find best match...
+					}
+				}
+			}
+		}
+
+		if (bestIndexCodeBook != 999) {
+#if DEBUG_COMPRESSOR
+			printf("=> Add codebook[%i](%i,%i,%i) to color[%i].\n",
+				bestIndexCodeBook,
+				CodeRGB[bestIndexCodeBook].dr,
+				CodeRGB[bestIndexCodeBook].dg,
+				CodeRGB[bestIndexCodeBook].db,
+				n - (bestDistance+2)
+			);
+#endif
+			SelectAnotherColor(bestDistance);
+			prevCol = &decompStm[(bestDistance+2)*(-3)];
+
+			WriteCodeBook(bestIndexCodeBook);
+			done = true;
+			*decompStm++ = prevCol[0] + CodeRGB[bestIndexCodeBook].dr;
+			*decompStm++ = prevCol[1] + CodeRGB[bestIndexCodeBook].dg;
+			*decompStm++ = prevCol[2] + CodeRGB[bestIndexCodeBook].db;
+			prevCol = &decompStm[-3];
+		}
+
+
+		if (!done) {
+			// TODO : Can use SelectAnotherColor and base as 'reference' instead of last color only !!!
+			int dR = pix[0]-pix[-3];
+			int dG = pix[1]-pix[-2];
+			int dB = pix[2]-pix[-1];
+			// Find a way to encode the color 
+			// RDO issue again :
+			// [1][1][000][RGBMsk]+1,2,3 Delta non code book from LAST color. => Mostly never used...
+			// [1][1][001][RGBMsk]+1,2,3 Byte follow depending on mask. Create color from LAST color. (component per component)
+
+			u8 mask = 0;
+
+			if (dR) { mask |= 0x1; }
+			if (dG) { mask |= 0x2; }
+			if (dB) { mask |= 0x4; }
+
+			// For now just check encodability.
+			if ((dR >= -128) && (dR <= 127) && 
+				(dG >= -128) && (dG <= 127) &&
+				(dB >= -128) && (dB <= 127)) {
+
+				// Can use relative stuff : increase probably of matching pattern I guess... ?
+				WriteRAW(0x80 | mask); // 0x80/0x88 and 0x00 have the same result... (0x80 and 0x88 never encoded)
+
+				if (dR) { WriteRAW(dR); }
+				if (dG) { WriteRAW(dG); }
+				if (dB) { WriteRAW(dB); }
+
+
+
+				// TODO : Get some stats -> If always RGB, remove that mask stuff : faster decoder, better compression rate...
+				//          Force all to be saved...
+//				printf("maskA : %i\n",mask);
+#if DEBUG_COMPRESSOR
+				printf("=> Add Relative Vector(msk:%i)(%i,%i,%i) to prev color.\n",mask,dR,dG,dB);
+#endif
+				*decompStm++ = prevCol[0] + dR;
+				*decompStm++ = prevCol[1] + dG;
+				*decompStm++ = prevCol[2] + dB;
+				prevCol = &decompStm[-3];
+
+			} else {
+				// If we go with 7 Bit mode, B encoding is not necessary anymore...
+
+				// Absolute stuff.
+				WriteRAW(0x88 | mask);
+				*decompStm++ = (dR) ? pix[0] : prevCol[0];
+				*decompStm++ = (dG) ? pix[1] : prevCol[1];
+				*decompStm++ = (dB) ? pix[2] : prevCol[2];
+				prevCol = &decompStm[-3];
+
+				if (dR) { WriteRAW(pix[0]); }
+				if (dG) { WriteRAW(pix[1]); }
+				if (dB) { WriteRAW(pix[2]); }
+
+//				printf("maskB : %i\n",mask);
+#if DEBUG_COMPRESSOR
+				printf("=> Set Absolute Vector(msk:%i)(%i,%i,%i) to prev color.\n",mask,pix[0],pix[1],pix[2]);
+#endif
+			}
+		}
+
+		if ((decompStm[-3] != pix[0]) || (decompStm[-2] != pix[1]) || (decompStm[-1] != pix[2])) {
+			printf("ERROR");
+		}
+	}
+	
+	#undef WriteRAW
+	#undef SelectAnotherColor
+	#undef WriteCodeBook
+exit:
+	if (!error) {
+		printf("-->Reduce stream from %i to %i by specific compressor.\n",*maxSize,streamIdx);
+	}
+
+	// Override size for output.
+	*maxSize = error ? 0 : streamIdx;
+
+	delete[] decomp;
+	return !error;
+}
+
+bool PaletteCompressorLUT(u8* input, int size, u8* output, u32* maxSize) {
+	bool error = false;
+	int streamIdx = 0;
+	int lmaxSize  = *maxSize;
+
+	int entryCol  = size / 3;
+
+	// Reduce drastically.
+	for (int n=0; n < size; n++) {
+		input[n] >>= 2;
+	}
+
+	// Special null code, better be at top.
+	CodeCount = 0; // Reset table.
+	registerCodeBook(0,0,0);
+
+	#define WriteRAW(v)					if (streamIdx < lmaxSize) { output[streamIdx++] = (v); } else { error = true; goto exit; }
+	#define SelectAnotherColor(colRef)	if (streamIdx < lmaxSize) { output[streamIdx++] = 0xC0 | ((colRef) & 0x3F); } else { error = true; goto exit; }
+	#define WriteCodeBook(codeIndex)	if (streamIdx < lmaxSize) { output[streamIdx++] = (codeIndex) & 0x7F; } else { error = true; goto exit; }
+
+	//
+	// Phase 1 : Build Best Code Book. (limit to 128 entries)
+	//           Include a search window for smallest code book already.
+	//
+	u8* pPix = input;
+	for (int n=1; n < entryCol; n++) {
+		u8* pix = &input[n*3];
+		int prevStart = n-64; if (prevStart < 0) { prevStart = 0; }
+
+		int distMin = 999999999;
+		int bR,bG,bB; // Best result.
+		for (int prev= prevStart; prev < n; prev++) {
+			int idx = prev*3;
+			int dR = pix[0]-pPix[idx];
+			int dG = pix[1]-pPix[idx+1];
+			int dB = pix[2]-pPix[idx+2];
+			int ldist = dR*dR + dG*dG + dB*dB; // Positive distance.
+			if (ldist < distMin) {
+				distMin = ldist;
+				bR = dR;
+				bG = dG;
+				bB = dB;
+			}
+		}
+
+		registerCodeBook(bR,bG,bB);
+	}
+	printf("-->Found %i Delta Code Book\n",CodeCount);
+
+	// Keep code 0,0,0 at top anyway. (normally, all contents should have a 0,0,0.
+    qsort (&CodeRGB[1], CodeCount-1, sizeof(col), compCode);
+	
+	int finalCodeCount = (CodeCount > 128) ? 128 : CodeCount;
+
+	// Code Book Header
+	WriteRAW(finalCodeCount);
+
+	for (int n=0; n < finalCodeCount; n++) {
+		WriteRAW(CodeRGB[n].dr);
+		WriteRAW(CodeRGB[n].dg);
+		WriteRAW(CodeRGB[n].db);
+	}
+
+	//
+	// Phase 2 : Encode the color, when the delta is not found in code book, use another strategy :
+	//           Many encoding possibilities... let's see.
+	//           
+	for (int n=1; n < entryCol; n++) {
+		u8* pix = &input[n*3];
+		int prevStart = n-65; if (prevStart < 0) { prevStart = 0; }
+
+		int distMin = 999999999;
+		int bR,bG,bB; // Best result.
+		bool done = false;
+
+		for (int prev= (n-1); prev >= prevStart; prev--) {
+			int idx = prev*3;
+			int dR = pix[0]-pPix[idx+0];
+			int dG = pix[1]-pPix[idx+1];
+			int dB = pix[2]-pPix[idx+2];
+
+			int index = FindCodeBook(dR,dG,dB);
+			if (index >= 0) {
+				if (prev == (n-1)) {
+					// Compare to previous color directly...
+					WriteCodeBook(index); // 0..128
+
+					/*
+					// Delta close box.
+					WriteRAW((pix[3]-pix[0])>>1);
+					WriteRAW((pix[4]-pix[1])>>1);
+					WriteRAW((pix[5]-pix[2])>>1);
+					*/
+					done = true;
+					break;
+				} else {
+					int distance = ((n-prev)-2);
+					// [TODO] Question : Find the most compressable JUMP + CodeBook index... ? => RDO
+					// For now : Choose between closest jump + whatever index.
+					//                          best    jump + smallest index.
+
+					// Closest jump + whatever index...
+					// -1..
+					if (distance < 64) {
+						if (index == 0) {
+							SelectAnotherColor(distance); // 11.xx xxxx
+						} else {
+							SelectAnotherColor(distance); // 11.xx xxxx
+							WriteCodeBook(index);
+						}
+
+						/*
+						// Delta close box.
+						WriteRAW((pix[3]-pix[0])>>1);
+						WriteRAW((pix[4]-pix[1])>>1);
+						WriteRAW((pix[5]-pix[2])>>1);
+						*/
+						done = true;
+						break;
+					}
+				}
+			}
+		}
+
+		if (!done) {
+			int dR = pix[0]-pix[-3];
+			int dG = pix[1]-pix[-2];
+			int dB = pix[2]-pix[-1];
+			// Find a way to encode the color 
+			// RDO issue again :
+			// [0][..............]
+			// [1][0][000][RGBMsk]+1,2,3 Delta non code book from LAST color. => Mostly never used...
+			// [1][0][001][RGBMsk]+1,2,3 Byte follow depending on mask. Create color from LAST color. (component per component)
+
+			u8 mask = 0;
+
+			if (dR) { mask |= 0x1; }
+			if (dG) { mask |= 0x2; }
+			if (dB) { mask |= 0x4; }
+
+			// For now just check encodability.
+			if ((dR >= -128) && (dR <= 127) && 
+				(dG >= -128) && (dG <= 127) &&
+				(dB >= -128) && (dB <= 127)) {
+
+				// Can use relative stuff : increase probably of matching pattern I guess... ?
+				WriteRAW(0x80 | mask);
+
+				if (dR) { WriteRAW(dR); }
+				if (dG) { WriteRAW(dG); }
+				if (dB) { WriteRAW(dB); }
+
+				// TODO : Get some stats -> If always RGB, remove that mask stuff : faster decoder, better compression rate...
+				//          Force all to be saved...
+//				printf("maskA : %i\n",mask);
+			} else {
+				// If we go with 7 Bit mode, B encoding is not necessary anymore...
+
+				// Absolute stuff.
+				WriteRAW(0x88 | mask);
+
+				if (dR) { WriteRAW(pix[0]); }
+				if (dG) { WriteRAW(pix[1]); }
+				if (dB) { WriteRAW(pix[2]); }
+
+//				printf("maskB : %i\n",mask);
+			}
+
+			// Delta close box.
+			WriteRAW((pix[3]-pix[0])>>1);
+			WriteRAW((pix[4]-pix[1])>>1);
+			WriteRAW((pix[5]-pix[2])>>1);
+		}
+	}
+	
+	#undef WriteRAW
+	#undef SelectAnotherColor
+	#undef WriteCodeBook
+exit:
+	if (!error) {
+		printf("-->Reduce stream from %i to %i by specific compressor.\n",*maxSize,streamIdx);
+	}
+
+	// Override size for output.
+	*maxSize = error ? 0 : streamIdx;
+	return !error;
 }
 
 int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* srcB, Plane* srcC, Image* testOutput, bool useYCoCg, int tileShiftX, int tileShiftY) {
@@ -3338,6 +3844,8 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 						bool rejectTile6 = false;
 						bool rejectTileO = false;
 						bool rejectTile6O= false;
+						bool rejectTile6OE= false;
+						bool rejectTile6E= false;
 
 						//---------------------------------------------------------
 						//  Evaluate if RGB Gradient from topleft pixel corner of
@@ -3409,10 +3917,22 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 									blendC6O[ch] = ((blendT6[ch] * tF + blendB6[ch] * bF)) / (1024*1024);
 								}
 
+								int blendT6Exp[3];
+								int blendB6Exp[3];
+								int blendC6Exp[3];
+								int blendC6OExp[3];
+
+								for (int ch=0; ch<3;ch++) {
+									blendT6Exp [ch] = Round6P(rgbTL[ch]) * lF +  Round6P(rgbTR[ch]) * rF; // *1024 scale
+									blendB6Exp [ch] = Round6P(rgbBL[ch]) * lF +  Round6P(rgbBR[ch]) * rF;
+									blendC6Exp [ch] = ((blendT6Exp[ch] * tF + blendB6Exp[ch] * bF) + rounding) / (1024*1024);
+									blendC6OExp[ch] = ((blendT6Exp[ch] * tF + blendB6Exp[ch] * bF)) / (1024*1024);
+								}
+
 								int idxT = dx + dy*tileSizeX;
-								rTile[idxT] = blendC[0]; rTile6[idxT] = blendC6[0];
-								gTile[idxT] = blendC[1]; gTile6[idxT] = blendC6[1];
-								bTile[idxT] = blendC[2]; bTile6[idxT] = blendC6[2];
+								rTile[idxT] = blendC6Exp[0]; rTile6[idxT] = blendC6[0];
+								gTile[idxT] = blendC6Exp[1]; gTile6[idxT] = blendC6[1];
+								bTile[idxT] = blendC6Exp[2]; bTile6[idxT] = blendC6[2];
 
 								if ((abs(rgbCurr[0]-blendC[0])>rejectFactor) || (abs(rgbCurr[1]-blendC[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC[2])>rejectFactor)) {
 									rejectTile = true;
@@ -3424,9 +3944,14 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 								if ((abs(rgbCurr[0]-blendCO[0])>rejectFactor) || (abs(rgbCurr[1]-blendCO[1])>rejectFactor)  || (abs(rgbCurr[2]-blendCO[2])>rejectFactor)) {
 									rejectTileO = true;
 								}
-
 								if ((abs(rgbCurr[0]-blendC6O[0])>rejectFactor) || (abs(rgbCurr[1]-blendC6O[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC6O[2])>rejectFactor)) {
 									rejectTile6O = true;
+								}
+								if ((abs(rgbCurr[0]-blendC6OExp[0])>rejectFactor) || (abs(rgbCurr[1]-blendC6OExp[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC6OExp[2])>rejectFactor)) {
+									rejectTile6OE = true;
+								}
+								if ((abs(rgbCurr[0]-blendC6Exp[0])>rejectFactor) || (abs(rgbCurr[1]-blendC6Exp[1])>rejectFactor)  || (abs(rgbCurr[2]-blendC6Exp[2])>rejectFactor)) {
+									rejectTile6E = true;
 								}
 							}
 						}
@@ -3434,7 +3959,7 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 						// --------------------------------------------------------
 						//   If Tile match.
 						// --------------------------------------------------------
-						if ((!rejectTile || !rejectTileO) || (!rejectTile6 || !rejectTile6O)) {
+						if ((!rejectTile || !rejectTileO) || (!rejectTile6 || !rejectTile6O) || (!rejectTile6OE || !rejectTile6E)) {
 							int EncodedA[3],EncodedB[3],EncodedC[3],EncodedD[3];
 					
 							for (int n=0; n < 3; n++) {
@@ -3543,32 +4068,32 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 
 							// Write Top Left
 							bool orgTile = (!rejectTile || !rejectTileO);
-							int* TL = rgbTL; // orgTile ?  : rgbTL6;   // Allow RGB full width to blend, even if matching not good in 888 space (but ok in 666 space)
-							int* TR = rgbTR; // orgTile ?  : rgbTR6;
-							int* BL = rgbBL; // orgTile ?  : rgbBL6;
-							int* BR = rgbBR; // orgTile ?  : rgbBR6;
+							int* TL = rgbTL6; // orgTile ?  : rgbTL6;   // Allow RGB full width to blend, even if matching not good in 888 space (but ok in 666 space)
+							int* TR = rgbTR6; // orgTile ?  : rgbTR6;
+							int* BL = rgbBL6; // orgTile ?  : rgbBL6;
+							int* BR = rgbBR6; // orgTile ?  : rgbBR6;
 
 							int coded = 0;
 
-							if (srcA && !EncodedA[0]) { *wrRgbStream++ = TL[0]; coded |= 0x0001; /*printf("TL\n");*/ }
-							if (srcB && !EncodedA[1]) { *wrRgbStream++ = TL[1]; coded |= 0x0002; }
-							if (srcC && !EncodedA[2]) { *wrRgbStream++ = TL[2]; coded |= 0x0004; }
+							if (srcA && !EncodedA[0]) { *wrRgbStream++ = CompressF(TL[0],colorCompressionQuad); coded |= 0x0001; /*printf("TL\n");*/ }
+							if (srcB && !EncodedA[1]) { *wrRgbStream++ = CompressF(TL[1],colorCompressionQuad); coded |= 0x0002; }
+							if (srcC && !EncodedA[2]) { *wrRgbStream++ = CompressF(TL[2],colorCompressionQuad); coded |= 0x0004; }
 
 							// Top Right
-							if (srcA && !EncodedB[0]) { *wrRgbStream++ = TR[0]; coded |= 0x0010; /*printf("TR\n");*/ }
-							if (srcB && !EncodedB[1]) { *wrRgbStream++ = TR[1]; coded |= 0x0020; }
-							if (srcC && !EncodedB[2]) { *wrRgbStream++ = TR[2]; coded |= 0x0040; }
+							if (srcA && !EncodedB[0]) { *wrRgbStream++ = CompressF(TR[0],colorCompressionQuad); coded |= 0x0010; /*printf("TR\n");*/ }
+							if (srcB && !EncodedB[1]) { *wrRgbStream++ = CompressF(TR[1],colorCompressionQuad); coded |= 0x0020; }
+							if (srcC && !EncodedB[2]) { *wrRgbStream++ = CompressF(TR[2],colorCompressionQuad); coded |= 0x0040; }
 
 							// Bottom Left
-							if (srcA && !EncodedC[0]) { *wrRgbStream++ = BL[0]; coded |= 0x0100; /*printf("BL\n");*/ }
-							if (srcB && !EncodedC[1]) { *wrRgbStream++ = BL[1]; coded |= 0x0200; }
-							if (srcC && !EncodedC[2]) { *wrRgbStream++ = BL[2]; coded |= 0x0400; }
+							if (srcA && !EncodedC[0]) { *wrRgbStream++ = CompressF(BL[0],colorCompressionQuad); coded |= 0x0100; /*printf("BL\n");*/ }
+							if (srcB && !EncodedC[1]) { *wrRgbStream++ = CompressF(BL[1],colorCompressionQuad); coded |= 0x0200; }
+							if (srcC && !EncodedC[2]) { *wrRgbStream++ = CompressF(BL[2],colorCompressionQuad); coded |= 0x0400; }
 
 							// Bottom Right
-							if (srcA && !EncodedD[0]) { *wrRgbStream++ = BR[0]; coded |= 0x1000; /*printf("BR\n");*/ }
-							if (srcB && !EncodedD[1]) { *wrRgbStream++ = BR[1]; coded |= 0x2000; }
-							if (srcC && !EncodedD[2]) { *wrRgbStream++ = BR[2]; coded |= 0x4000; }
-#if 1
+							if (srcA && !EncodedD[0]) { *wrRgbStream++ = CompressF(BR[0],colorCompressionQuad); coded |= 0x1000; /*printf("BR\n");*/ }
+							if (srcB && !EncodedD[1]) { *wrRgbStream++ = CompressF(BR[1],colorCompressionQuad); coded |= 0x2000; }
+							if (srcC && !EncodedD[2]) { *wrRgbStream++ = CompressF(BR[2],colorCompressionQuad); coded |= 0x4000; }
+#if 0
 							if (srcA && srcB && srcC) {
 								// RGB
 								printf("Grad %i,%i [%i,%i,%i][%i,%i,%i]-[%i,%i,%i][%i,%i,%i]\n",
@@ -3703,17 +4228,50 @@ nextTile:
 	
 		header.streamBitmapSize = result;
 
-		// Compress the RGB stream.
-		int sizeDec = streamW * streamH * 3;
 		int uncompressRGBSize = wrRgbStream - rgbStream;
+		int sizeDec = streamW * streamH * 3;
 		unsigned char* pZStdStreamRGB = new unsigned char[streamH * streamW * 3 * 2];
+#if 0
+		// Compress the RGB stream.
 		result = (int)ZSTD_compress(pZStdStreamRGB, sizeDec * 2, rgbStream, uncompressRGBSize, 18);
-
-		header.streamRGBSize				= result;
 		header.streamRGBSizeUncompressed	= uncompressRGBSize;
+#else
+		u8* tmpBuffer = new u8[uncompressRGBSize*3];
+		u32 sizeInOut = uncompressRGBSize*3;
+		if (PaletteCompressor(rgbStream, uncompressRGBSize, tmpBuffer, &sizeInOut)) {
+			u8* decompTest = new u8[uncompressRGBSize];
+			PaletteDecompressor(tmpBuffer, sizeInOut, uncompressRGBSize, decompTest, uncompressRGBSize,colorCompressionQuad);
+			
+			bool errorPal = false;
+			/*
+			u8* originalMapTo8 = new u8[uncompressRGBSize];
+			for (int i=0; i < uncompressRGBSize; i++) {
+				originalMapTo8[i] = (rgbStream[i]<<2) | (rgbStream[i]>>4)????; // WRONG. Need func(rgbStream[i],colorCompressionQuad)
+				if (originalMapTo8[i] != decompTest[i]) {
+					printf("ERROR PALETTE %i\n",i);
+					errorPal = true;
+				}
+			}
+			*/
+
+			if (errorPal) {
+				printf("Palette decompression error\n");
+				// while (1) {}
+			}
+			delete[] decompTest;
+
+			result = (int)ZSTD_compress(pZStdStreamRGB, sizeDec * 2, tmpBuffer, sizeInOut, 18);
+		}
+		header.streamRGBSizeCustomCompressor= sizeInOut;
+		header.streamRGBSizeUncompressed	= uncompressRGBSize;
+		header.colorCompression				= colorCompressionQuad;
+
+		delete[] tmpBuffer;
+#endif
+		header.streamRGBSizeZStd			= result;
 
 		fileOutSize += result;
-		printf("RGB Gradient Tile %ix%i : %i\n",tileSizeX, tileSizeY,result);
+		printf("RGB Gradient Tile %ix%i : %i->%i\n",tileSizeX, tileSizeY,uncompressRGBSize*3,result);
 
 		HeaderBase headerTag;
 		headerTag.tag.tag8[0] = 'G';
@@ -3721,7 +4279,9 @@ nextTile:
 		headerTag.tag.tag8[2] = 'I';
 		headerTag.tag.tag8[3] = 'L';
 
-		int baseSize = (sizeof(HeaderGradientTile) + header.streamBitmapSize + header.streamRGBSize);
+//		stbi_write_bmp("palette6.bmp",uncompressRGBSize / 3,1,3,rgbStream);
+
+		int baseSize = (sizeof(HeaderGradientTile) + header.streamBitmapSize + header.streamRGBSizeZStd);
 		headerTag.length	  = ((baseSize + 3) >> 2) <<2;	// Round multiple of 4.
 
 		if (pStats) {
@@ -3745,7 +4305,7 @@ nextTile:
 		fwrite(&headerTag, sizeof(HeaderBase)	, 1, outFile);
 		fwrite(&header,1,sizeof(HeaderGradientTile),outFile);
 		fwrite(pZStdStreamBitmap,1,header.streamBitmapSize,outFile);
-		fwrite(pZStdStreamRGB,1,header.streamRGBSize,outFile);
+		fwrite(pZStdStreamRGB,1,header.streamRGBSizeZStd,outFile);
 		if (padding) { fwrite(pad, 1, padding, outFile); }
 
 		delete[] pZStdStreamRGB;
@@ -5712,6 +6272,11 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 					bool pixelInside;
 					bb3 = buildBBox3D(input,useYCoCg,mapSmoothTile,x,y,tileSizeX,tileSizeY,pixelsInTile,maskTile,pixelInside);
 
+					//
+//								Convert6Bit(rgb);
+
+
+
 					// Export normalized values...
 					int dX = bb3.x1 - bb3.x0;
 					int dY = bb3.y1 - bb3.y0;
@@ -5766,6 +6331,8 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 
 								int rgb[3];
 								input->GetPixel(x+tx,y+ty,rgb,isOutSide);
+								// Convert6Bit(rgb);
+
 
 								if (useYCoCg) {
 									RGBtoYCoCgPos(rgb[0],rgb[1],rgb[2],rgb[0],rgb[1],rgb[2]);
@@ -6843,13 +7410,29 @@ void EncoderContext::EndCorrelationSearch(bool is3D, u8 component) {
 	printf("Stream Tile : %i\n",(int)result);
 
 	if (streamColorCnt > 0) {
+
+#if 0
+		// DUMP COLOR STREAM FOR RESEARCH LOSSLESS COMPRESSION PALETTE.
 		u8* minStream = new u8[streamColorCnt];
 		u8* maxStream = &minStream[streamColorCnt>>1];
 		
-		for (int n=0; n < streamColorCnt; n += 2) {
-			minStream[n>>1] = corr3D_colorStream[n];
-			maxStream[n>>1] = corr3D_colorStream[n+1];
+		for (int n=0; n < streamColorCnt; n += 6) {
+			int idx = n>>1;
+			minStream[idx+0] = corr3D_colorStream[n+0];
+			minStream[idx+1] = corr3D_colorStream[n+1];
+			minStream[idx+2] = corr3D_colorStream[n+2];
+
+			maxStream[idx+0] = corr3D_colorStream[n+3];
+			maxStream[idx+1] = corr3D_colorStream[n+4];
+			maxStream[idx+2] = corr3D_colorStream[n+5];
 		}
+
+		stbi_write_png("palette3DMin.png",streamColorCnt/6,1,3,minStream,streamColorCnt/2);
+		stbi_write_png("palette3DMax.png",streamColorCnt/6,1,3,maxStream,streamColorCnt/2);
+
+		delete [] minStream;
+		delete [] maxStream;
+#endif
 
 		/*
 		s16* diffStream = new s16[streamColorCnt*2];
@@ -6866,10 +7449,15 @@ void EncoderContext::EndCorrelationSearch(bool is3D, u8 component) {
 		result = ZSTD_compress(ZStdColorStream, streamColorCnt * 2, diffStream ,streamColorCnt*2, 18);
 		*/
 
+		// Color Range compression (posterization)
+		for (int n=0; n < streamColorCnt; n++) {
+			corr3D_colorStream[n] = CompressF(corr3D_colorStream[n],colorCompressionLUT3D);
+		}
+		
 		result = ZSTD_compress(ZStdColorStream, streamColorCnt * 2 + 100, corr3D_colorStream ,streamColorCnt, 18);
 		header3D.comprColorSize = result;
-		// stbi_write_png("palette3D.png",streamColorCnt/3,1,3,minStream,streamColorCnt);
-		delete [] minStream;
+		header3D.compressionRateColor= colorCompressionLUT3D;
+
 	} else {
 		header3D.comprColorSize = 0;
 	}
@@ -7688,6 +8276,247 @@ void TestCompress(u8* start, u8* end) {
 	delete[] dstZ;
 }
 
+int FindAndRemoveMostUsedColor(u8* histo_) {
+	// Extract Min-Max, First and Second.
+	int idxBestFirst = -1;
+	int valBestFirst = -1;
+	for (int n=0; n < 256; n++) {
+		if (histo_[n] >= valBestFirst) { // >= is important !!! Take most RIGHT best value. Override OK !
+			valBestFirst = histo_[n];
+			idxBestFirst = n;
+		}
+	}
+	
+	// Will use Index-1..Index+1 as a unique single color.
+	if (idxBestFirst ==   0) { idxBestFirst =   1; }
+	if (idxBestFirst == 255) { idxBestFirst = 254; }
+
+	// Remove the color from the histogram.
+	histo_[idxBestFirst-1] = 0;
+	histo_[idxBestFirst  ] = 0;
+	histo_[idxBestFirst+1] = 0;
+
+	return idxBestFirst;
+}
+
+void Model1(u8* histo_, int valueRange, int& outMin, int& outDelta) {
+	//
+	// V = Min + Range * Value (0..valueRange)
+	//
+	int minV8 = 99999;
+	int maxV8 = -99999;
+	for (int n=0; n < 256; n++) {
+		int v = histo_[n];
+		if (v) {
+			if (minV8 > n)   { minV8 = n; }
+			if (maxV8 < n)   { maxV8 = n; }
+		}
+	}
+
+	if (minV8 != 99999) {
+		int delta = maxV8-minV8;
+		outMin   = minV8;
+		outDelta = delta;
+	} else {
+		// Only TWO COLORS removed...
+		outMin   = 0;
+		outDelta = 0;
+	}
+}
+
+int GetValueModel1(int value, int minCol, int delta, int rangeCompression) {
+	int res;
+	if (delta) {
+		res = (((value - minCol) * rangeCompression)+((delta>>1)-1)) / delta;
+	} else {
+		res = 0;
+	}
+	return res;
+}
+
+int DecompModel1(int index, int minCol, int delta, int rangeCompression) {
+	int v = minCol + ((index * delta)/rangeCompression);
+	return v;
+} 
+
+u8* EncoderContext::DynamicTileCompressor(u8* stream, Plane* src, Plane* map, Plane* debug) {
+	u8* startStream = stream;
+	int w = src->GetWidth();
+	int h = src->GetHeight();
+
+	u8 histo256[256];
+	u8 values[256];
+	u8 offX[256];
+	u8 offY[256];
+
+	int totalPixel = 0;
+	int total0 = 0;
+	int total1 = 0;
+
+	for (int y = 0; y < h; y+=8) {
+		for (int x = 0; x < w; x+=8) {
+			int pixelCount = 0;
+			memset(histo256,0,sizeof(u8)*256);
+
+			// 4x4 => 4 tiles
+			bool isOut;
+			int shape = 0xF;
+			for (int y2=0; y2 < 8; y2 += 4) {
+				// for (int x2=0; x2 < 8; x2 += 4) {
+				bool hasLeft  = (map->GetPixelValue(x  ,y2+y,isOut) == 0); 
+				if (hasLeft) {
+					shape &= ~(1<<( 0 + ((y2&4)>>1) )); // Remove bit.
+				}
+
+				bool hasRight = (map->GetPixelValue(x+4,y2+y,isOut) == 0); 
+				if (hasRight) {
+					shape &= ~(1<<( 1 + ((y2&4)>>1) )); // Remove bit.
+				}
+
+				if (hasLeft | hasRight) {
+					// Extract Histogram.
+					int lengthX = (hasLeft && hasRight)        ? 8 : 4;
+					int x2      = ((lengthX == 4) && hasRight) ? 4 : 0;
+					for (int iy =0; iy < 4; iy++) {
+						for (int ix =0; ix < lengthX; ix++) {
+
+							int v = src->GetPixelValue(x+x2+ix,y+y2+iy,isOut);
+
+							// Perform global color compression.
+							v = CompressF(v, colorCompression1D);
+
+							// Histogram.
+							histo256[v]++;
+							values[pixelCount] = v;
+							offX[pixelCount]   = x2+ix;
+							offY[pixelCount]   = y2+iy;
+
+							pixelCount++;
+						}
+					}
+				}
+			}
+
+			if (pixelCount > 0) {
+
+				// Step 1 : find most used 0 and 1
+				int unique = 0;
+				for (int n=0; n < 256; n++) {
+					if (histo256[n] != 0) {
+						unique++;
+					}
+				}
+
+				int colorIndex0 = FindAndRemoveMostUsedColor(histo256);
+				// int colorIndex1 = FindAndRemoveMostUsedColor(histo256);
+
+
+				int minCol;
+				int delta;
+				// Col = MinCol  + UBit*Range
+				Model1(histo256, rangeCompression1D, minCol, delta);
+
+				// LUT ID -> MIN + D Range      
+				// Type 1:
+				// Col = MinCol + POS_LUT[Bit]            (Min,LUTID)
+				// Col = MinCol + POS_LUT[Bit]*Range      (Min,Range,LUTID) <-- Cheat with MinCol to give precise most used color for a given bit.
+				// Type 2:
+				// Col = BaseCol + SGN_LUT[Bit]           (Min,LUTID)
+				// Col = BaseCol + SGB_LUT[Bit]*Range     (Min,Range,LUTID) <-- Good middle base color ??? May be inexistant value.
+				// Type 3:
+				// Col = BaseCol + SBit*Range             <-- SBit = 0 naturally encode most used color. Base Col is small and PRECISE.
+				// Col = MinCol  + LUT[UBit]*Range
+				// Col = BaseCol + LUT[SBit]*Range        
+
+				for (int n=0; n < pixelCount; n++) {
+					int v = values[n];
+					if ((v >= colorIndex0-1) && (v <= colorIndex0+1)) {
+						*stream++ = 0;
+						// Visualize most used color for now.
+						debug->SetPixel(x + offX[n],y + offY[n],colorIndex0);
+						printf("S:%i -> V:%i\n",stream[-1],colorIndex0);
+					} else {
+						int idx = GetValueModel1(v,minCol,delta,rangeCompression1D);
+						*stream++ = 1 + idx;
+						int vOut = DecompModel1(idx,minCol,delta,rangeCompression1D);
+						debug->SetPixel(x + offX[n],y + offY[n],vOut);
+						printf("S:%i -> V:%i\n",stream[-1],vOut);
+					}
+				}
+
+				*pType++ = colorIndex0; // Parameters = Index 0 value.
+				*pType++ = minCol;
+				*pType++ = delta;
+
+				printf("Tile %i,%i => Data : %i (%x) PixCount, %i color0, %i Base, %i delta\n",x,y,pixelCount,shape,colorIndex0,minCol,delta);
+
+				// LUT = Better color distribution for bit.
+				// Note : UBit/SBit not force to a specific SIZE. Not 4 bit or 5 bit only... adapted to tile.
+
+				//        -> Base + +-Range
+				//		  -> Use pixel 0,0 of tile if available.
+				//        -> Value 0/1 used for most used color. YES.
+				// Range compr. per tile ?
+				// 
+			}
+		}
+	}
+
+	return stream;
+}
+
+void EncoderContext::GenerateDynamicTileChunk(u8* stream, int sizeStream) {
+		HeaderBase headerTag;
+		headerTag.tag.tag8[0] = '1';
+		headerTag.tag.tag8[1] = 'D';
+		headerTag.tag.tag8[2] = 'T';
+		headerTag.tag.tag8[3] = 'L';
+
+		Header1D header1D;
+		header1D.version			= 0;
+		header1D.compressionColor	= colorCompression1D;
+		header1D.compressionRange	= rangeCompression1D;
+
+		// --- Pixel Data
+		unsigned char* pZStdStream = new unsigned char[sizeStream*2];
+		size_t result = (int)ZSTD_compress(pZStdStream, sizeStream*2, stream,sizeStream, 18);
+		fileOutSize += result;
+
+		header1D.streamPixelBit     = result;
+		header1D.streamPixelUncmp   = sizeStream;
+
+		// --- Tile Data
+		unsigned char* pZStdType   = new unsigned char[sizeStream];
+		int sizeTypeStreamUncmp    = pType-streamType;
+		result = (int)ZSTD_compress(pZStdType, sizeStream, streamType,sizeTypeStreamUncmp, 18);
+		fileOutSize += result;
+
+		header1D.streamTypeCnt      = result;
+		header1D.streamTypeUncmp    = sizeTypeStreamUncmp;
+
+		int baseSize = sizeof(HeaderGradientTile) 
+			         + header1D.streamPixelBit
+					 + header1D.streamTypeCnt
+					 ;
+
+		headerTag.length	  = ((baseSize + 3) >> 2) <<2;	// Round multiple of 4.
+
+		u8 pad[3] = { 0,0,0 };
+		int padding = headerTag.length - baseSize;
+
+		fwrite(&headerTag, sizeof(HeaderBase)	, 1, outFile);
+		fwrite(&header1D,  sizeof(Header1D  )   , 1, outFile);
+
+		// 
+		fwrite(pZStdType,1,header1D.streamTypeCnt,outFile);
+		// 
+		fwrite(pZStdStream,1,header1D.streamPixelBit,outFile);
+		if (padding) { fwrite(pad, 1, padding, outFile); }
+
+		delete[] pZStdStream;
+		delete[] pZStdType;
+}
+
 u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
 	u8* startStream = stream;
 	int w = src->GetWidth();
@@ -8367,6 +9196,7 @@ void EncoderContext::Convert(const char* source, const char* outputFile, bool du
 		// RB,RG,GB Gradient 4 pixels....
 		//
 		size_t result = 0;
+if (0) {
 		if (!evaluateLUT && !evaluateLUT2D) {
 			FittingQuadSmooth(rejectFactor,
 				original->GetPlane(0),
@@ -8408,7 +9238,7 @@ void EncoderContext::Convert(const char* source, const char* outputFile, bool du
 		}
 
 		if (!evaluateLUT) {
-#if 1
+#if 0
 			evaluateMap = NULL;
 			correlationPatternCount2D = 0;
 
@@ -8499,7 +9329,7 @@ void EncoderContext::Convert(const char* source, const char* outputFile, bool du
 			// Seperate Y,Co,Cg plane.
 			// TODO : Remove Tile from Original that were compressed.
 			//
-#if 1
+#if 0
 			FittingQuadSmooth(rejectFactor,
 				original->GetPlane(0),
 				NULL,
@@ -8541,39 +9371,40 @@ void EncoderContext::Convert(const char* source, const char* outputFile, bool du
 		//			output->convertToYCoCg2RGB()->savePNG("outputEncoderRGB.png",NULL);
 			}
 
-#if 1
 			char buffer[2000];
 			sprintf(buffer,"output\\%s.png",outputFile);
 			output->SavePNG(buffer,NULL);
 
-			// Here we switch to another mode for 2 plane/1 plane
-			u8* tmpStream = new u8[original->GetWidth() * original->GetHeight() * 3];
-			u8* wrtStream = tmpStream;
-			wrtStream = DynamicTileAnalyze(wrtStream, original->GetPlane(0),mapSmoothTile->GetPlane(0),output->GetPlane(0));
-			if (dump) {
-				output->SavePNG("RDyn.png",NULL);
-			}
-
-			wrtStream = DynamicTileAnalyze(wrtStream, original->GetPlane(1),mapSmoothTile->GetPlane(1),output->GetPlane(1));
-			if (dump) {
-				output->SavePNG("GDyn.png",NULL);
-			}
-			wrtStream = DynamicTileAnalyze(wrtStream, original->GetPlane(2),mapSmoothTile->GetPlane(2),output->GetPlane(2));
-			if (dump) {
-				output->SavePNG("BDyn.png",NULL);
-			}
-
-			int sizeMax = original->GetWidth() * original->GetHeight() * 3;
-			u8* dstZ = new u8[sizeMax];
-			result = ZSTD_compress(dstZ, sizeMax, tmpStream, wrtStream - tmpStream, 18);
-				
-			printf(" %i -> %i\n",wrtStream - tmpStream, (int)result);
-			delete[] tmpStream;
-#endif
+} // End if (0) {
 
 		} else {
 			result = 0;
 		}
+
+		// Here we switch to another mode for 2 plane/1 plane
+		u8* tmpStream = new u8[original->GetWidth() * original->GetHeight() * 3];
+		u8* wrtStream = tmpStream;
+
+		output->SavePNG("outputTileScaled.png",NULL);
+		mapSmoothTile->SavePNG("Solve2D.png",NULL);
+
+		wrtStream = DynamicTileCompressor(wrtStream, original->GetPlane(0),mapSmoothTile->GetPlane(0),output->GetPlane(0));
+		if (dump) {
+			output->SavePNG("RDyn.png",NULL);
+		}
+
+		wrtStream = DynamicTileCompressor(wrtStream, original->GetPlane(1),mapSmoothTile->GetPlane(1),output->GetPlane(1));
+		if (dump) {
+			output->SavePNG("GDyn.png",NULL);
+		}
+		wrtStream = DynamicTileCompressor(wrtStream, original->GetPlane(2),mapSmoothTile->GetPlane(2),output->GetPlane(2));
+		if (dump) {
+			output->SavePNG("BDyn.png",NULL);
+		}
+
+		GenerateDynamicTileChunk(tmpStream, wrtStream-tmpStream);
+
+		delete[] tmpStream;
 
 		if (pStats) {
 			int totalGradients = pStats->loc.sizeBlock3DGradient + pStats->loc.sizeBlock2DGradient + pStats->loc.sizeBlock1DGradient;

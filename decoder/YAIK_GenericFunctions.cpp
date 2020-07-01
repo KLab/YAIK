@@ -114,4 +114,118 @@ void Dump4x4TileMap(const char* name, u8* mapR, u8* mapG, u8* mapB, int w, int h
 	int err = stbi_write_png(name, w, h, 3, exportB, w*3);
 	delete[] exportB;
 }
+
 #endif
+
+// #define DEBUG_PALETTE
+
+#ifdef DEBUG_PALETTE
+	#include <stdio.h>
+#endif
+
+void PaletteFullRangeRemapping(u8* inOutData, u8 originalRange, int lengthMultipleOf3) {
+	u8* parse = inOutData;
+	int t;
+	int invMul = originalRange ? ((255<<16) / originalRange) : (255<<16);
+	while (parse < &inOutData[lengthMultipleOf3]) {
+		t = *parse; *parse++ = (t * invMul) >> 16;
+		t = *parse; *parse++ = (t * invMul) >> 16;
+		t = *parse; *parse++ = (t * invMul) >> 16;
+	}
+}
+
+bool PaletteDecompressor(u8* input, int inputSize, int inputBufferSize, u8* output, int outputSize, u8 colorCompression) {
+	u8* codeBook     = NULL;
+	u8* lastColor    = NULL;
+	u8  codeBookSize = *input++;
+	int pos          = 1;
+	u8* lastRGB		 = &output[outputSize-3];
+	u8* parse		 = NULL;
+	u8* write		 = NULL;
+
+	int t = pos+(128*3);
+	pos += codeBookSize*3;
+	if (pos > inputSize)       { goto error; } // Valid stream.
+	if (t   > inputBufferSize) { goto error; } // Security check for invalid code book indexes.
+
+	// Avoid memcpy, map in place.
+	codeBook = input;
+	input += codeBookSize*3;
+
+	// All work with intermediate color system for now.
+
+	// first color. (6 Bit !)
+	write = output;
+	*write++ = *input++;
+	*write++ = *input++;
+	*write++ = *input++;
+#ifdef DEBUG_PALETTE
+	printf("Color 0(%i,%i,%i)\n",output[0],output[1],output[2]);
+#endif
+
+	int c;
+	lastColor = output;
+
+	while (write <= lastRGB) {
+		c = *input++;
+		if (c & 0x80) {
+			if (c & 0x40) {
+				// [1][1][Distance Ref]
+				int index = ((c & 0x3F)+2)*(-3);
+				lastColor = &write[index];
+			} else {
+				if (write > lastRGB) { goto error; }
+
+				switch ((c>>3) & 7) {
+				case 0:
+					// [1][0][000][RGBMsk]+1,2,3 Delta non code book from LAST color. => Mostly never used...
+					write[0] = lastColor[0] + ((c & 1) ? *input++ : 0);
+					write[1] = lastColor[1] + ((c & 2) ? *input++ : 0);
+					write[2] = lastColor[2] + ((c & 4) ? *input++ : 0);
+#ifdef DEBUG_PALETTE
+					printf("Color %i(%i,%i,%i)\n",(write-output) / 3,write[0],write[1],write[2]);
+#endif
+					break;
+				case 1:
+					// [1][0][001][RGBMsk]+1,2,3 Byte follow depending on mask. Create color from LAST color. (component per component)
+					write[0] = ((c & 1) ? *input++ : lastColor[0]);
+					write[1] = ((c & 2) ? *input++ : lastColor[1]);
+					write[2] = ((c & 4) ? *input++ : lastColor[2]);
+#ifdef DEBUG_PALETTE
+					printf("Color %i(%i,%i,%i)\n",(write-output) / 3,write[0],write[1],write[2]);
+#endif
+					break;
+				default:
+					// 2..7 : Future extensions.
+					goto error;
+				}
+				lastColor = write;
+				write   += 3;
+			}
+		} else {
+			if (write > lastRGB) { goto error; }
+
+			// [0][Code book index]
+			// Code book.
+			u8* code = &codeBook[(c&0x7F)*3];
+			write[0] = lastColor[0] + code[0];
+			write[1] = lastColor[1] + code[1];
+			write[2] = lastColor[2] + code[2];
+
+#ifdef DEBUG_PALETTE
+			printf("Color %i(%i,%i,%i)\n",(write-output) / 3,write[0],write[1],write[2]);
+#endif
+
+			lastColor = write;
+			write   += 3;
+		}
+	}
+
+	// Pass 2
+	// Fast Conversion back to 0..255 range from [0..ColorCompression]
+	PaletteFullRangeRemapping(output,colorCompression,outputSize);
+
+	return true;
+error:
+	return false;
+}

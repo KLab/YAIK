@@ -61,6 +61,7 @@ void			SetErrorCode(YAIK_ERROR_CODE error) {
 #define TAG_GRADTILE	(0x4c495447)
 #define TAG_TILE3D		(0x4c544433)
 #define TAG_TILE2D		(0x4c544432)
+#define TAG_TILE1D		(0x4c544431)
 
 void wrongOrder() {
 	kassert(false); // Not implemented.
@@ -445,6 +446,18 @@ bool			YAIK_DecodeImagePre	(YAIK_LIB libMemory, void* sourceStreamAligned, u32 s
 	return false;
 }
 
+void UpdateTileAndRGBMask(YAIK_Instance* pCtx) {
+	if (pCtx->singleRGB) {
+		pCtx->singleRGB = false;
+		// Duplicate RGB Loaded pixel bitmap for G and B channel now. (until now it was RGB within a single bit-map)
+		memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask   ],pCtx->mapRGBMask,pCtx->sizeMapMask);
+		memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask<<1],pCtx->mapRGBMask,pCtx->sizeMapMask);
+		// Duplicate Processed map of 4x4 tile. (until now it was RGB within a single bit-map)
+		memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize   ],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
+		memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize<<1],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
+	}
+}
+
 // -----------------------------------------------------------------------------------------------
 //		YAIK_DecodeImage
 // -----------------------------------------------------------------------------------------------
@@ -673,14 +686,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					memset(pCtx->tile4x4Mask,0, pCtx->tile4x4MaskSize);
 				}
 
-				if (pHeader->plane != 7 && pCtx->singleRGB) {
-					pCtx->singleRGB = false;
-					// Duplicate RGB Loaded pixel bitmap for G and B channel now. (until now it was RGB within a single bit-map)
-					memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask   ],pCtx->mapRGBMask,pCtx->sizeMapMask);
-					memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask<<1],pCtx->mapRGBMask,pCtx->sizeMapMask);
-					// Duplicate Processed map of 4x4 tile. (until now it was RGB within a single bit-map)
-					memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize   ],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
-					memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize<<1],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
+				if (pHeader->plane != 7) {
+					UpdateTileAndRGBMask(pCtx);
 				}
 
 				// -------------------------------------------------------------------
@@ -699,7 +706,22 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				u8* dataUncompressedTilebitmap = (u8*)DecompressData(pCtx, after, pHeader->streamBitmapSize, sizeBitmap);
 				after += pHeader->streamBitmapSize;
-				u8* dataUncompressedRGB        = (u8*)DecompressData(pCtx, after, pHeader->streamRGBSize   , pHeader->streamRGBSizeUncompressed);
+				u8* dataCustCompressedRGB      = (u8*)DecompressData(pCtx, after, pHeader->streamRGBSizeZStd, pHeader->streamRGBSizeCustomCompressor);
+
+				u8* dataUncompressedRGB        = NULL;
+				if (dataCustCompressedRGB) {
+					dataUncompressedRGB = (u8*)AllocateMem(&allocCtx, pHeader->streamRGBSizeUncompressed);
+					if (dataUncompressedRGB) {
+						// (u8* input, int inputSize, int inputBufferSize, u8* output, int outputSize)
+						PaletteDecompressor(
+							dataCustCompressedRGB,pHeader->streamRGBSizeCustomCompressor,
+							pHeader->streamRGBSizeCustomCompressor,
+							dataUncompressedRGB,
+							pHeader->streamRGBSizeUncompressed,
+							pHeader->colorCompression
+						);
+					}
+				}
 
 				if (dataUncompressedRGB && dataUncompressedTilebitmap) {
 					// -------------------------------------------------------------------
@@ -744,6 +766,62 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 			}
 			break;
 		}
+		case TAG_TILE1D:
+		{
+			if (state >= 4) {
+				state = 5;
+				Header1D* pHeader = (Header1D*)pBlock;
+				u8* streamTypeCmp = (u8*)&pHeader[1];
+				u8* streamPixCmp  = &streamTypeCmp[pHeader->streamTypeCnt];
+
+				u8* typeDecomp      = DecompressData(pCtx,streamTypeCmp,pHeader->streamTypeCnt ,pHeader->streamTypeUncmp );
+				u8* allocTypeDecomp = typeDecomp;
+				u8* pixStreamDecomp = DecompressData(pCtx,streamPixCmp ,pHeader->streamPixelBit,pHeader->streamPixelUncmp);
+				u8* allocPixStream  = pixStreamDecomp;
+
+				if (typeDecomp && pixStreamDecomp) {
+					UpdateTileAndRGBMask(pCtx);
+
+					Decompress1D(pCtx, &typeDecomp,&pixStreamDecomp,0, pHeader);
+#ifdef YAIK_DEVEL
+	#if 1
+					{ BoundingBox bb;
+					bb.x=0; bb.y=0;
+					bb.w=512; bb.h=720;
+					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+					Dump4x4TileMap("Tile4x4_Post8x16.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
+	#endif
+#endif
+					Decompress1D(pCtx, &typeDecomp,&pixStreamDecomp,1, pHeader);
+#ifdef YAIK_DEVEL
+	#if 1
+					{ BoundingBox bb;
+					bb.x=0; bb.y=0;
+					bb.w=512; bb.h=720;
+					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+					Dump4x4TileMap("Tile4x4_Post8x16.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
+	#endif
+#endif
+					Decompress1D(pCtx, &typeDecomp,&pixStreamDecomp,2, pHeader);
+#ifdef YAIK_DEVEL
+	#if 1
+					{ BoundingBox bb;
+					bb.x=0; bb.y=0;
+					bb.w=512; bb.h=720;
+					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+					Dump4x4TileMap("Tile4x4_Post8x16.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
+	#endif
+#endif
+
+
+					allocCtx.customFree(&allocCtx, allocTypeDecomp);
+					allocCtx.customFree(&allocCtx, allocPixStream);
+				} else {
+					// [TODO] Error : Memory alloc or invalid stream.
+				}
+			}
+		}
+			break;
 		case TAG_TILE3D:
 		case TAG_TILE2D:
 		{
@@ -833,6 +911,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					goto error;
 				}
 
+				PaletteFullRangeRemapping(t3dParamPtrDelete.colorStream,pHeader->compressionRateColor,pHeader->streamColorCnt);
 
 				// TODO : possibly some flag to speed up 'empty' channel. ?
 				// Start/End ? Empty ?
@@ -887,6 +966,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						if (is3D) {
 							Tile3D_8x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 						} else {
+							UpdateTileAndRGBMask(pCtx);
+
 							switch (pHeader->component) {
 							case 3:
 								Tile2D_8x8_RG (pCtx, pHeader, &t3dParam, gLibrary.LUT2D_BitFormat);
@@ -966,6 +1047,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						if (is3D) {
 							Tile3D_4x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 						} else {
+							UpdateTileAndRGBMask(pCtx);
+
 							switch (pHeader->component) {
 							case 3:
 								Tile2D_4x4_RG (pCtx, pHeader, &t3dParam, gLibrary.LUT2D_BitFormat);
@@ -994,6 +1077,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					bb.x=0; bb.y=0;
 					bb.w=512; bb.h=720;
 					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
+					Dump4x4TileMap("Tile4x4_Post4x4.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
 	#endif
 #endif
 				}

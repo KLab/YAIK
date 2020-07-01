@@ -132,9 +132,18 @@ void Tile2D_4x4_GB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* 
 void Tile2D_8x8_RB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
 void Tile2D_4x4_RB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT);
 
+
+// -----------------------------------------------------------------------------------------------------------------------------------------
+//   1D PLANE DECOMPRESSION
+// -----------------------------------------------------------------------------------------------------------------------------------------
+
+void Decompress1D  (YAIK_Instance* pInstance, u8** pTypeDecomp, u8** pPixStreamDecomp, u8 planeID, Header1D* pHeader);
+
 // -----------------------------------------------------------------------------------------------------------------------------------------
 //   Generic Math Bit Macro to make code a bit clearer
 // -----------------------------------------------------------------------------------------------------------------------------------------
+
+void PaletteFullRangeRemapping(u8* inOutData, u8 originalRange, int lengthMultipleOf3);
 
 // Round and divide by 2 to 64 range.
 #define	RDIV2(a)		(((a)+ 1)>>1)

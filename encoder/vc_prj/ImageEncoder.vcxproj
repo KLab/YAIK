@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\decoder\YAIK_GenericFunctions.cpp" />
     <ClCompile Include="..\..\external\zstd\cover.c" />
     <ClCompile Include="..\..\external\zstd\debug.c" />
     <ClCompile Include="..\..\external\zstd\divsufsort.c" />

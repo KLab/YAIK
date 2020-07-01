@@ -151,6 +151,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\external\zstd\debug.c" />
+    <ClCompile Include="..\..\external\zstd\fastcover.c" />
+    <ClCompile Include="..\..\external\zstd\hist.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_compress_literals.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_compress_sequences.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_compress_superblock.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_ddict.c" />
+    <ClCompile Include="..\..\external\zstd\zstd_decompress_block.c" />
+    <ClCompile Include="..\YAIK_3DTile.cpp" />
     <ClCompile Include="..\YAIK_Alpha.cpp" />
     <ClCompile Include="..\YAIK_DefaultCallback.cpp" />
     <ClCompile Include="..\YAIK_GenericFunctions.cpp" />

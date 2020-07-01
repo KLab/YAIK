@@ -1,6 +1,11 @@
 #include "YAIK_functions.h"
 
 // #define DEBUG_TILE3D
+// #define DEBUG_TILE1D
+
+#ifdef DEBUG_TILE1D
+	#include <stdio.h>
+#endif
 
 #ifdef DEBUG_TILE3D
 	#include <stdio.h>
@@ -15,6 +20,275 @@
 	#define DEF_PMC					;
 #endif
 
+void deltaT3(u8* RGB, int* diff) {
+	//
+	// First round RGB 0,1,2 only.
+	//
+	/*
+	// REDUCE 64 Range.
+	int R = RGB[0]; R++;
+	if (R>255) { R = 255; }
+	R >>= 2;
+
+	int G = RGB[1]; G++;
+	if (G>255) { G = 255; }
+	G >>= 2;
+
+	int B = RGB[2]; B++;
+	if (B>255) { B = 255; }
+	B >>= 2;
+
+	RGB[0] = (R<<2) | (R>>4);
+	RGB[1] = (G<<2) | (G>>4);
+	RGB[2] = (B<<2) | (B>>4);
+	*/
+
+	// REDUCE 128 RANGE.
+	int R = RGB[0]; R++;
+	if (R>255) { R = 255; }
+	R >>= 1;
+
+	int G = RGB[1]; G++;
+	if (G>255) { G = 255; }
+	G >>= 1;
+
+	int B = RGB[2]; B++;
+	if (B>255) { B = 255; }
+	B >>= 1;
+
+	RGB[0] = (R<<1) | (R>>6);
+	RGB[1] = (G<<1) | (G>>6);
+	RGB[2] = (B<<1) | (B>>6);
+
+	// Round up 3,4,5
+	diff[0] = RGB[3] - RGB[0]; diff[1] = RGB[4] - RGB[1]; diff[2] = RGB[5] - RGB[2];
+}
+
+void deltaT2(u8* RGB, int* diff) {
+}
+
+
+void Decompress1D  (YAIK_Instance* pInstance, u8** pTypeDecomp, u8** pPixStreamDecomp, u8 planeID, Header1D* pHeader) {
+	u16 iw			= pInstance->width;
+	u16 ih			= pInstance->height;
+	u64 tileWord	= 0;
+	u8* mapRGB		= pInstance->mapRGB;
+	u8* hasRGB		= pInstance->mapRGBMask;
+
+//	int idxX;
+//	int idxY		= 0;
+	u8* pixelUsed;
+	u8* plane;
+	u8* indexStream = *pPixStreamDecomp;
+	u8* tileStream  = *pTypeDecomp;
+
+	switch (planeID) {
+	case 0:
+		pixelUsed	= pInstance->tile4x4Mask;
+		plane		= pInstance->planeR;
+		break;
+	case 1:
+		pixelUsed	= &pInstance->tile4x4Mask[pInstance->tile4x4MaskSize];
+		plane		= pInstance->planeG;
+		break;
+	case 2:
+		pixelUsed	= &pInstance->tile4x4Mask[pInstance->tile4x4MaskSize<<1];
+		plane		= pInstance->planeB;
+		break;
+	default:
+		// Unsupported planeID.
+		return;
+	}
+
+	int strideY8	= (pInstance->strideRGBMap * 2);  // 2 Block of 4 pixel = skip 8.
+	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
+	int strideTile	= (iw>>3)<<6;
+	u8* dataStreamNBit[4];
+
+	// RGB Version Only.
+#ifdef DEBUG_TILE1D
+	printf("--- Decoder 1D 8x8\n");
+#endif
+
+	int invRangeCompr = (1<<24) / pHeader->compressionRange; // 0.24 / 0.4 -> 0.20
+	int tileCount = 0;
+
+	for (u16 y=0; y<ih; y+=8) {
+//		idxX = idxY;
+		for (u16 x=0; x<iw; x+=8) {
+			u32 stride4x4Map = iw >> 4; // TODO => Wrong, need to fix, does not work for image width != mod 16
+			int PixUsedIdx = (x>>4) + ((y>>3)*stride4x4Map);
+			u8 patternQuad = pixelUsed[PixUsedIdx];
+
+			patternQuad >>= ((x & 8) ? 4 : 0); // Shift of 4 if tile is 8 odd, else nothing if 16 aligned.
+			patternQuad  &= 0xF;
+
+			if (patternQuad != 0xF) {
+				// Tile  Ready.
+				u8 color0		= *tileStream++;
+				u8 base         = *tileStream++;
+				u8 delta        = *tileStream++;
+
+				int delta2      = ((delta * invRangeCompr)>>8)+1;
+
+				// LUT For Index Ready.
+				u32 stride4x4Map = iw >> 4; // TODO => Wrong, need to fix, does not work for image width != mod 16
+				int idxTilePlane = (((y>>3)*strideTile) + ((x>>3)<<6));
+				u8* tile = &plane[idxTilePlane];
+
+				u8  L;
+				int n;
+				int cnt = 1;
+
+				DEF_PMC
+				DEBUG_PIXELCOUNTER
+
+				tileCount++;
+				u8 VP;
+			block4Y:
+				switch (patternQuad & 3) {
+				case 3:
+					tile += 32;
+					break;
+				case 2: {
+					// -----------------------------------------------
+					// Left 4x4 Tile
+					// -----------------------------------------------
+					n = 4;
+					do {
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile   = VP;
+
+						// Next Line
+						tile   += 5;
+					} while (--n); // Compare to zero, lower loop cost.
+					DEBUG_PIX_ADD16;
+
+				} break;
+				case 1: {
+					// -----------------------------------------------
+					// Right 4x4 Tile
+					// -----------------------------------------------
+					tile += 4;
+								
+					n = 4;
+					do {
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile   = VP;
+
+						// Next Line
+						tile   += 5;
+					} while (--n); // Compare to zero, lower loop cost.
+					DEBUG_PIX_ADD16;
+
+					// Return at X = 0 coordinate inside tile
+					tile -= 4;
+				} break;
+				case 0: {
+					// -----------------------------------------------
+					// Both 4x4 Tile
+					// -----------------------------------------------
+
+					n = 4;
+					do {
+						// Left Block
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+
+						// Right Block
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+						L = *indexStream++;
+						VP= L ? (base + ((((L-1) * delta2))>>16)): color0;
+						*tile++ = VP;
+
+						// Next Line
+					} while (--n); // Compare to zero, lower loop cost.
+					DEBUG_PIX_ADD32;
+				} break;
+				DEFAULT_UNREACHABLE
+				}
+
+				if (cnt) {
+					cnt = 0;
+					patternQuad >>= 2;
+					goto block4Y;
+				}
+
+#ifdef DEBUG_TILE1D
+				int countPix;
+				switch (patternQuad) {
+				case  0: countPix = 4*16; break; // 0000
+				case  1: countPix = 3*16; break; // 0001
+				case  2: countPix = 3*16; break; // 0010
+				case  3: countPix = 2*16; break; // 0011
+				case  4: countPix = 3*16; break; // 0100
+				case  5: countPix = 2*16; break; // 0101
+				case  6: countPix = 2*16; break; // 0110
+				case  7: countPix = 1*16; break; // 0111
+				case  8: countPix = 3*16; break; // 1000
+				case  9: countPix = 2*16; break; // 1001
+				case 10: countPix = 2*16; break;  // 1010
+				case 11: countPix = 1*16; break;  // 1011
+				case 12: countPix = 2*16; break;  // 1100
+				case 13: countPix = 1*16; break;  // 1101
+				case 14: countPix = 1*16; break;  // 1110
+				case 15: countPix = 0;    break; 
+				}
+
+				printf("Tile %i,%i => Data : %i (%x) PixCount, %i color0, %i Base, %i delta\n",x,y,countPix,patternQuad,color0,base,delta);
+#endif
+
+
+			}
+		}
+	}
+
+	*pPixStreamDecomp = indexStream;
+	*pTypeDecomp      = tileStream;
+}
+
+#define		COMPUTE_RGBDELTA	diff[0] = RGB[3] - RGB[0]; diff[1] = RGB[4] - RGB[1]; diff[2] = RGB[5] - RGB[2];
+#define     COMPUTE_RGBDELTA2D  diff[0] = RGB[2] - RGB[0]; diff[1] = RGB[3] - RGB[1];
+//#define		COMPUTE_RGBDELTA	deltaT3(RGB,diff);
+//#define     COMPUTE_RGBDELTA2D  deltaT2(RGB,diff);
 
 void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT) {
 	u16 iw			= pInstance->width;
@@ -140,9 +414,8 @@ void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							u8 patternQuad = pixelUsed[idxPixUsed];
 
 							int diff[3];
-							diff[0] = RGB[3] - RGB[0];
-							diff[1] = RGB[4] - RGB[1];
-							diff[2] = RGB[5] - RGB[2];
+
+							COMPUTE_RGBDELTA;
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
 
@@ -496,9 +769,7 @@ void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							}
 
 							int diff[3];
-							diff[0] = RGB[3] - RGB[0];
-							diff[1] = RGB[4] - RGB[1];
-							diff[2] = RGB[5] - RGB[2];
+							COMPUTE_RGBDELTA;
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
 
@@ -872,9 +1143,7 @@ void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							}
 
 							int diff[3];
-							diff[0] = RGB[3] - RGB[0];
-							diff[1] = RGB[4] - RGB[1];
-							diff[2] = RGB[5] - RGB[2];
+							COMPUTE_RGBDELTA;
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
 
@@ -1236,9 +1505,7 @@ void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							pixelUsed[PixUsedIdx] |= maskUse;
 
 							int diff[3];
-							diff[0] = RGB[3] - RGB[0];
-							diff[1] = RGB[4] - RGB[1];
-							diff[2] = RGB[5] - RGB[2];
+							COMPUTE_RGBDELTA;
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + ((yt & 4)<<3); // ((yt & 4)<<3) = Odd / Even Tile vertically (4x8)
 
@@ -1587,9 +1854,7 @@ void Tile3D_4x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							pixelUsed[PixUsedIdx] |= maskUse;
 
 							int diff[3];
-							diff[0] = RGB[3] - RGB[0];
-							diff[1] = RGB[4] - RGB[1];
-							diff[2] = RGB[5] - RGB[2];
+							COMPUTE_RGBDELTA;
 
 //							for (int tileY=0; tileY <16; tileY+=8) {
 							u8* tileRL = &planeR[idxTilePlane];
@@ -1828,9 +2093,7 @@ void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							pixelUsed[PixUsedIdx] |= maskUse;
 
 							int diff[3];
-							diff[0] = RGB[3] - RGB[0];
-							diff[1] = RGB[4] - RGB[1];
-							diff[2] = RGB[5] - RGB[2];
+							COMPUTE_RGBDELTA;
 
 //							for (int tileY=0; tileY <16; tileY+=8) {
 							u8* tileRL = &planeR[idxTilePlane];
@@ -2039,9 +2302,7 @@ void Tile2D_8x8_RG (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* 
 							}
 
 							int diff[2];
-							diff[0] = RGB[2] - RGB[0];
-							diff[1] = RGB[3] - RGB[1];
-//							diff[2] = RGB[5] - RGB[2];
+							COMPUTE_RGBDELTA2D;
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
 
@@ -2404,9 +2665,7 @@ void Tile2D_4x4_RG (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* 
 							pixelUsed[PixUsedIdx] |= maskUse;
 
 							int diff[2];
-							diff[0] = RGB[2] - RGB[0];
-							diff[1] = RGB[3] - RGB[1];
-//							diff[2] = RGB[5] - RGB[2];
+							COMPUTE_RGBDELTA2D;
 
 //							for (int tileY=0; tileY <16; tileY+=8) {
 							u8* tileRL = &planeR[idxTilePlane];
@@ -2617,8 +2876,7 @@ void Tile2D_8x8_GB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* 
 							}
 
 							int diff[2];
-							diff[0] = RGB[2] - RGB[0];
-							diff[1] = RGB[3] - RGB[1];
+							COMPUTE_RGBDELTA2D;
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
 
@@ -2959,8 +3217,7 @@ void Tile2D_4x4_GB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* 
 							pixelUsed[PixUsedIdx] |= maskUse;
 
 							int diff[2];
-							diff[0] = RGB[2] - RGB[0];
-							diff[1] = RGB[3] - RGB[1];
+							COMPUTE_RGBDELTA2D;
 
 							u8* tileGL = &planeG[idxTilePlane];
 							u8* tileBL = &planeB[idxTilePlane];
@@ -3163,8 +3420,7 @@ void Tile2D_8x8_RB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* 
 							}
 
 							int diff[2];
-							diff[0] = RGB[2] - RGB[0];
-							diff[1] = RGB[3] - RGB[1];
+							COMPUTE_RGBDELTA2D;
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
 
@@ -3504,8 +3760,7 @@ void Tile2D_4x4_RB (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* 
 							pixelUsed[PixUsedIdx] |= maskUse;
 
 							int diff[2];
-							diff[0] = RGB[2] - RGB[0];
-							diff[1] = RGB[3] - RGB[1];
+							COMPUTE_RGBDELTA2D;
 
 							u8* tileRL = &planeR[idxTilePlane];
 							u8* tileBL = &planeB[idxTilePlane];
