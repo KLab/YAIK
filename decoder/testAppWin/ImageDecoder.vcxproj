@@ -167,7 +167,6 @@
     <ClCompile Include="..\YAIK_Mipmap.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="..\YAIK_API.cpp" />
-    <ClCompile Include="..\YAIK_DecodeLUT.cpp" />
     <ClCompile Include="..\..\external\zstd\cover.c" />
     <ClCompile Include="..\..\external\zstd\divsufsort.c" />
     <ClCompile Include="..\..\external\zstd\entropy_common.c" />

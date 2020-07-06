@@ -76,6 +76,9 @@ void            YAIK_Release                (YAIK_LIB               lib);
     This call ALSO allocate an internal context : A call to YAIK_DecodeImagePre MUST BE FOLLOWED 
     by a call to YAIK_DecodeImage.                                                                                  
     
+	IMPORTANT : Do not provide the memory allocator in this call, information will be overwritten here.
+	            Memory allocator has to be provided at the second stage.
+
     Note : The YAIK image stream must be aligned to 4 bytes in memory.                                              */
 bool            YAIK_DecodeImagePre         (YAIK_LIB               libMemory
                                             ,void*                  sourceStreamAligned
@@ -129,7 +132,14 @@ enum YAIK_ERROR_CODE {
     This is a 'sticky' error code : the first call to fail will set the code and stay until user read it.
 
     If multiple failure occurs (multiple call to APIs), it is only the first error code that the user is going
-    to see, not the last one. It will be reset by calling the function.                                             */
+    to see, not the last one. It will be reset by calling the function.
+	
+	The error code may be lost if multiple thread decode at the same time and both generate an error.
+	Probability is very low, yet a thread error could shadow/override a completely different thread error.
+	
+	Obviously, a thread could decode with no error but call to this function return a error for another thread.
+	PLEASE CHECK the decoder boolean return value for successfull completion before checking the error code.
+*/
 YAIK_ERROR_CODE YAIK_GetErrorCode           ();
 
 // ###################################################################################################################
@@ -143,6 +153,8 @@ typedef void*   (*YAIK_allocFunc) (void* customContext, size_t size     );
 typedef void    (*YAIK_freeFunc ) (void* customContext, void*  address  );
 // Note : YAIK_freeFunc MUST support NULL ptr as a valid parameter.
 struct YAIK_SMemAlloc {
+	YAIK_SMemAlloc():customAlloc(0),customFree(0),customContext(0) {}
+
     YAIK_allocFunc  customAlloc;
     YAIK_freeFunc   customFree;
     void*           customContext; 

@@ -58,10 +58,10 @@ int main()
 		u32 LUTSize3D;
 		u32 LUTSize2D;
 		u8* LUTData3D = LoadFile("../../encoder/vc_prj/LutFile.lut",LUTSize3D);
-		u8* LUTData2D = LoadFile("../../encoder/vc_prj/LutFile2D.lut",LUTSize2D);
+//		u8* LUTData2D = LoadFile("../../encoder/vc_prj/LutFile2D.lut",LUTSize2D);
 		StartCounter();
 		YAIK_AssignLUT(lib,LUTData3D,LUTSize3D);
-		YAIK_AssignLUT(lib,LUTData2D,LUTSize2D);
+//		YAIK_AssignLUT(lib,LUTData2D,LUTSize2D);
 
 		printf("Assign LUT : Millisecond %f\n",(float)GetCounter());
 
@@ -97,6 +97,7 @@ int main()
 				imageInfo.outputImageStride		= imageInfo.width * (imageInfo.hasAlpha ? 4 : 3);
 
 				StartCounter();
+
 				YAIK_DecodeImage(fileData, fileLength, &imageInfo);
 				printf("Millisecond %f\n",(float)GetCounter());
 

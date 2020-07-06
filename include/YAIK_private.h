@@ -62,7 +62,7 @@ struct YAIK_Library {
     // Allocate slots.
     YAIK_Instance*  instances;
     u8*             LUT3D_BitFormat[4];
-    u8*             LUT2D_BitFormat[4];
+    // u8*          LUT2D_BitFormat[4]; DEPRECATED FOR NOW.
     YAIK_SMemAlloc  libraryAllocator;
     YAIK_Instance*  AllocInstance   ();
     void            FreeInstance    (YAIK_Instance* inst);

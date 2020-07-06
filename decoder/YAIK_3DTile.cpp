@@ -20,54 +20,6 @@
 	#define DEF_PMC					;
 #endif
 
-void deltaT3(u8* RGB, int* diff) {
-	//
-	// First round RGB 0,1,2 only.
-	//
-	/*
-	// REDUCE 64 Range.
-	int R = RGB[0]; R++;
-	if (R>255) { R = 255; }
-	R >>= 2;
-
-	int G = RGB[1]; G++;
-	if (G>255) { G = 255; }
-	G >>= 2;
-
-	int B = RGB[2]; B++;
-	if (B>255) { B = 255; }
-	B >>= 2;
-
-	RGB[0] = (R<<2) | (R>>4);
-	RGB[1] = (G<<2) | (G>>4);
-	RGB[2] = (B<<2) | (B>>4);
-	*/
-
-	// REDUCE 128 RANGE.
-	int R = RGB[0]; R++;
-	if (R>255) { R = 255; }
-	R >>= 1;
-
-	int G = RGB[1]; G++;
-	if (G>255) { G = 255; }
-	G >>= 1;
-
-	int B = RGB[2]; B++;
-	if (B>255) { B = 255; }
-	B >>= 1;
-
-	RGB[0] = (R<<1) | (R>>6);
-	RGB[1] = (G<<1) | (G>>6);
-	RGB[2] = (B<<1) | (B>>6);
-
-	// Round up 3,4,5
-	diff[0] = RGB[3] - RGB[0]; diff[1] = RGB[4] - RGB[1]; diff[2] = RGB[5] - RGB[2];
-}
-
-void deltaT2(u8* RGB, int* diff) {
-}
-
-
 void Decompress1D  (YAIK_Instance* pInstance, u8** pTypeDecomp, u8** pPixStreamDecomp, u8 planeID, Header1D* pHeader) {
 	u16 iw			= pInstance->width;
 	u16 ih			= pInstance->height;
@@ -286,9 +238,6 @@ void Decompress1D  (YAIK_Instance* pInstance, u8** pTypeDecomp, u8** pPixStreamD
 }
 
 #define		COMPUTE_RGBDELTA	diff[0] = RGB[3] - RGB[0]; diff[1] = RGB[4] - RGB[1]; diff[2] = RGB[5] - RGB[2];
-#define     COMPUTE_RGBDELTA2D  diff[0] = RGB[2] - RGB[0]; diff[1] = RGB[3] - RGB[1];
-//#define		COMPUTE_RGBDELTA	deltaT3(RGB,diff);
-//#define     COMPUTE_RGBDELTA2D  deltaT2(RGB,diff);
 
 void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT) {
 	u16 iw			= pInstance->width;
@@ -2174,6 +2123,19 @@ void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 	param->stream6Bit	= dataStreamNBit[3];
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// DEPRECATED FOR NOW
+// It is a block of function working on decompressing 2D Planes instead of 3 or 1.
+// Those intermediate steps created issues that made compression ratio not really good.
+// Also, those function weren't processing much data in the test I ran.
+//
+// Still those function hold values in the fact that they are implemented and working,
+// not to be simply thrown away in case I would need them again.
+// ---------------------------------------------------------------------------------------------------------------------
+#if 0
+
+#define     COMPUTE_RGBDELTA2D  diff[0] = RGB[2] - RGB[0]; diff[1] = RGB[3] - RGB[1];
+
 void Tile2D_8x8_RG (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* param, u8** TBLLUT) {
 	u16 iw			= pInstance->width;
 	u16 ih			= pInstance->height;
@@ -3834,3 +3796,8 @@ nextVerticalBlock:
 	param->stream5Bit	= dataStreamNBit[2];
 	param->stream6Bit	= dataStreamNBit[3];
 }
+
+#endif
+//--------------------------------------------------------------------------------------------------------------
+// End of deprecated, 2d (Plane) block decompression.
+//--------------------------------------------------------------------------------------------------------------

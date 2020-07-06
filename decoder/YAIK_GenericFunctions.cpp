@@ -44,8 +44,10 @@ void DumpColorMap888Swizzle(const char* name, u8* arrayR, u8* arrayG, u8* arrayB
 }
 
 void DebugRGBAsPng(const char* dump, u8* buffer, int w, int h, int channel) {
+#ifdef YAIK_DEVEL
 	stbi_set_flip_vertically_on_load(false);
 	int err = stbi_write_png(dump, w, h, channel, buffer, w * channel);
+#endif
 }
 
 void Dump4x4TileMap(const char* name, u8* mapR, u8* mapG, u8* mapB, int w, int h) {

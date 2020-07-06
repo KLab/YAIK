@@ -7858,6 +7858,11 @@ void EncoderContext::Load3DPattern(const char* fileName) {
 			arrayXYZ = reduceXYZ;
 		}
 
+		if (correlationPatternCount3D >= 64) {
+			printf("ERROR : LUT 3D more than 64 entries.\n");
+			exit(1);
+		}
+
 		correlationPattern3D[correlationPatternCount3D++].Set3DPointCloud(15.0f,arrayXYZ,count);
 
 		/*
@@ -8494,7 +8499,7 @@ void EncoderContext::GenerateDynamicTileChunk(u8* stream, int sizeStream) {
 		header1D.streamTypeCnt      = result;
 		header1D.streamTypeUncmp    = sizeTypeStreamUncmp;
 
-		int baseSize = sizeof(HeaderGradientTile) 
+		int baseSize = sizeof(Header1D) 
 			         + header1D.streamPixelBit
 					 + header1D.streamTypeCnt
 					 ;

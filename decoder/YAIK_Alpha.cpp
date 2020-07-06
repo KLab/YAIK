@@ -9,18 +9,39 @@
 2. Decompression technique for Alpha
 -----------------------------------------------------------------------------
  */
+bool CheckInBound2D(YAIK_Instance* pCtx, BoundingBox& bbox) {
+	// Check that all values are POSITIVE.
+	if ((bbox.x|bbox.y|bbox.w|bbox.h) < 0) { return false; }
+	// Check that X0,Y0 is inside image. (Included)
+	if ((bbox.x >= pCtx->width) || (bbox.y >= pCtx->height)) {
+		return false;
+	}
+	// Check that X1,Y1 are inside image.(Excluded)
+	if (((bbox.x+bbox.w) > pCtx->width) || ((bbox.y+bbox.h) > pCtx->height)) {
+		return false;
+	}
+}
 
-bool Decompress1BitMaskAlign8NoMask(YAIK_Instance* pCtx, BoundingBox& header_bbox, u8* data_uncompressed) {
-	BoundingBox bbox = header_bbox;
+bool Decompress1BitMaskAlign8NoMask(YAIK_Instance* pCtx, BoundingBox& header_bbox, u8* data_uncompressed, u32 data_size) {
+	BoundingBox& bbox = header_bbox;
 	u32 width  = pCtx->width;
 	u32 height = pCtx->height;
 
-	//Heap Temp Allocator
-	//	[Alloc for stream decompression of size]
-	pCtx->alphaChannel = (u8*)AllocateMem(&pCtx->allocCtx, width * height);
-	if (pCtx->alphaChannel == NULL) { return false; }
+	// Match file width/height
+	if (!CheckInBound2D(pCtx, bbox)) { return false; }
+
+	// Check before doing allocation.
+	if (data_size < ((bbox.w>>3)*bbox.h)) {
+		return false;
+	}
 
 	if ((bbox.h > 0) && (bbox.w > 0)) {
+		//Heap Temp Allocator
+		//	[Alloc for stream decompression of size]
+		pCtx->alphaChannel = (u8*)AllocateMem(&pCtx->allocCtx, width * height);
+		if (pCtx->alphaChannel == NULL) { return false; }
+		
+
 		// No empty surface allowed.
 
 		// 8 pixel aligned.
@@ -82,12 +103,25 @@ bool Decompress1BitMaskAlign8NoMask(YAIK_Instance* pCtx, BoundingBox& header_bbo
 			memset(pDst, 0, stepDo);
 			pDst += stepDo;
 		}
+
+		return true;
+	} else { 
+		return false;
 	}
 
-	return true;
 }
 
-bool Decompress6BitTo8BitAlphaNoMask(YAIK_Instance* pCtx, AlphaHeader* header, bool useInverseValues, u8* data_uncompressed) {
+bool Decompress6BitTo8BitAlphaNoMask(YAIK_Instance* pCtx, AlphaHeader* header, bool useInverseValues, u8* data_uncompressed, u32 data_size) {
+	BoundingBox& bbox	= header->bbox;
+
+	// Match file width/height
+	if (!CheckInBound2D(pCtx, bbox)) { return false; }
+
+	// Check before doing allocation.
+	if (data_size < ((bbox.w>>3)*bbox.h)) {
+		return false;
+	}
+
 	if ((header->bbox.h > 0) && (header->bbox.w > 0)) {
 		u32 width  = pCtx->width;
 		u32 height = pCtx->height;
@@ -101,7 +135,6 @@ bool Decompress6BitTo8BitAlphaNoMask(YAIK_Instance* pCtx, AlphaHeader* header, b
 		u8* alphaChannel	= pCtx->alphaChannel;
 		u8* alphaMaskStream = data_uncompressed;
 
-		BoundingBox bbox	= header->bbox;
 		int dstWidth		= pCtx->width;
 
 		/*	Fill mask with optimization to the length
@@ -201,7 +234,7 @@ bool Decompress6BitTo8BitAlphaNoMask(YAIK_Instance* pCtx, AlphaHeader* header, b
 	return true;
 }
 
-bool Decompress6BitTo8BitAlphaUsingMipmapMask(YAIK_Instance* pCtx, AlphaHeader* header, bool useInverseValues, u8* data_uncompressed) {
+bool Decompress6BitTo8BitAlphaUsingMipmapMask(YAIK_Instance* pCtx, AlphaHeader* header, bool useInverseValues, u8* data_uncompressed, u32 data_size) {
 	if ((header->bbox.h > 0) && (header->bbox.w > 0)) {
 		u32 width  = pCtx->width;
 		u32 height = pCtx->height;
@@ -341,7 +374,7 @@ bool Decompress6BitTo8BitAlphaUsingMipmapMask(YAIK_Instance* pCtx, AlphaHeader* 
 	return true;
 }
 
-bool Decompress8BitTo8BitAlphaNoMask(YAIK_Instance* pCtx, AlphaHeader* header, u8* data_uncompressed) {
+bool Decompress8BitTo8BitAlphaNoMask(YAIK_Instance* pCtx, AlphaHeader* header, u8* data_uncompressed, u32 data_size) {
 	// TODO : Reuse from previous alpha stuff.
 	// Support only through memcpy.
 	if ((header->bbox.h > 0) && (header->bbox.w > 0)) {

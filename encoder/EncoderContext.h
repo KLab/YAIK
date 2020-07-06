@@ -708,8 +708,8 @@ protected:
 		}
 	};
 
-	EvalCtx3D	correlationPattern3D[256];
-	EvalCtx2D	correlationPattern2D[2048];
+	EvalCtx3D	correlationPattern3D[64];
+	EvalCtx2D	correlationPattern2D[64];
 	int			correlationPatternCount3D;
 	int			correlationPatternCount2D;
 	bool		isCaptureMode3D;
