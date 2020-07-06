@@ -83,7 +83,7 @@ int main()
 		}
 
 		int n = 0;
-		for (int n=0; n < 10; n++) 
+		for (int n=0; n < 1; n++) 
 		{
 			printf("---%i----\n",n);
 

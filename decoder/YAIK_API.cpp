@@ -582,6 +582,12 @@ int     mem_allocCount = 0;
 YAIK_SMemAlloc mem_wrapperAlloc;
 
 void*   checkAllocFunc (void* customContext, size_t size     ) {
+    /* TEST FAILURE POINT.
+	if (mem_allocCount == 32) {
+		mem_allocCount++;
+		return NULL; 
+	} // Force failure.
+    */
 	mem_buffers[mem_allocCount] = mem_wrapperAlloc.customAlloc(customContext,size);
 	return mem_buffers[mem_allocCount++];
 }
@@ -868,6 +874,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				u8* dataCustCompressedRGB      = (u8*)DecompressData(pCtx, after, pHeader->streamRGBSizeZStd, pHeader->streamRGBSizeCustomCompressor);
 
 				u8* dataUncompressedRGB        = NULL;
+				bool mem_fail = false;
 				if (dataCustCompressedRGB) {
 					dataUncompressedRGB = (u8*)AllocateMem(&allocCtx, pHeader->streamRGBSizeUncompressed);
 					if (dataUncompressedRGB) {
@@ -879,8 +886,12 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 							pHeader->streamRGBSizeUncompressed,
 							pHeader->colorCompression
 						);
+					} else {
+						mem_fail = true;
 					}
 					FreeMem(&allocCtx,dataCustCompressedRGB);
+				} else {
+					mem_fail = true;
 				}
 
 				if (dataUncompressedRGB && dataUncompressedTilebitmap) {
@@ -903,10 +914,18 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					case HeaderGradientTile::TILE_4x8:	 DecompressGradient4x8	(pCtx, dataUncompressedTilebitmap,dataUncompressedRGB, pR, pG, pB, pHeader->plane); break;
 					case HeaderGradientTile::TILE_4x4:	 DecompressGradient4x4	(pCtx, dataUncompressedTilebitmap,dataUncompressedRGB, pR, pG, pB, pHeader->plane); break;
 					}
+				} else {
+					mem_fail = true;
 				}
 
+				// Free in any cases, may be some were allocated.
 				FreeMem(&allocCtx,dataUncompressedRGB);
 				FreeMem(&allocCtx,dataUncompressedTilebitmap);
+
+				if (mem_fail) {
+					// Error code already set by AllocateMem when failure : SetErrorCode(YAIK_MALLOC_FAIL);
+					goto error;
+				}
 
 				Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4.png");
 				DebugRGBAsPng   ("RGBMap.png",pCtx->mapRGB, (pCtx->width>>2)+1, ((pCtx->height>>2)+1), 3);
@@ -926,6 +945,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				u8* pixStreamDecomp = DecompressData(pCtx,streamPixCmp ,pHeader->streamPixelBit,pHeader->streamPixelUncmp);
 				u8* allocPixStream  = pixStreamDecomp;
 
+				bool mem_error = false;
 				if (typeDecomp && pixStreamDecomp) {
 					UpdateTileAndRGBMask(pCtx);
 
@@ -938,10 +958,16 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					Decompress1D(pCtx, &typeDecomp,&pixStreamDecomp,2, pHeader);
 					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_1DB.png");
 
-					allocCtx.customFree(&allocCtx, allocTypeDecomp);
-					allocCtx.customFree(&allocCtx, allocPixStream);
 				} else {
-					// [TODO] Error : Memory alloc or invalid stream.
+					mem_error = true;
+				}
+
+				// Free in any cases, may be some were allocated.
+				FreeMem(&allocCtx, allocTypeDecomp);
+				FreeMem(&allocCtx, allocPixStream );
+
+				if (mem_error) {
+					goto error;
 				}
 			}
 		}
@@ -1023,13 +1049,13 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						||	!t3dParam.colorStream ) {
 
 					// Try to free was has been allocated locally if error.
-					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream3Bit);
-					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream4Bit);
-					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream5Bit);
-					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream6Bit);
+					FreeMem(&allocCtx,t3dParamPtrDelete.stream3Bit);
+					FreeMem(&allocCtx,t3dParamPtrDelete.stream4Bit);
+					FreeMem(&allocCtx,t3dParamPtrDelete.stream5Bit);
+					FreeMem(&allocCtx,t3dParamPtrDelete.stream6Bit);
 
-					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.colorStream);
-					allocCtx.customFree(&allocCtx,t3dParamPtrDelete.tileStream);
+					FreeMem(&allocCtx,t3dParamPtrDelete.colorStream);
+					FreeMem(&allocCtx,t3dParamPtrDelete.tileStream);
 
 					// Code already set by error code.
 					goto error;
@@ -1037,14 +1063,14 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				PaletteFullRangeRemapping(t3dParamPtrDelete.colorStream,pHeader->compressionRateColor,pHeader->streamColorCnt);
 
+				bool memErr = false;
 				if (pHeader->sizeT16_8Map) {
 					t3dParam.currentMap	= DecompressData(pCtx,tmap16_8, pHeader->sizeT16_8MapCmp, pHeader->sizeT16_8Map);
 					if (t3dParam.currentMap) {
 						Tile3D_16x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 					} else {
-						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
-						goto error;
+						memErr = true;
 					}
 
 					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post16x8.png");
@@ -1057,8 +1083,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						Tile3D_8x16(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 					} else {
-						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
-						goto error;
+						memErr = true;
 					}
 					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post8x16.png");
 				}
@@ -1099,11 +1124,12 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 							#endif
 						}
 					} else {
-						err = true;
+						memErr = true;
+						err    = true;
 					}
 
-					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
-					if (err) { goto error; }
+					FreeMem(&allocCtx,t3dParam.currentMap);
+					memErr |= err; // will go to error later, in case earlier error forgot to free things...
 
 					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post8x8.png");
 				}
@@ -1112,10 +1138,9 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					t3dParam.currentMap	= DecompressData(pCtx,tmap8_4, pHeader->sizeT8_4MapCmp, pHeader->sizeT8_4Map);
 					if (t3dParam.currentMap) {
 						Tile3D_8x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
-						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
+						FreeMem(&allocCtx,t3dParam.currentMap);
 					} else {
-						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
-						goto error;
+						memErr = true;
 					}
 
 					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post8x4.png");
@@ -1125,10 +1150,9 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					t3dParam.currentMap	= DecompressData(pCtx,tmap4_8, pHeader->sizeT4_8MapCmp, pHeader->sizeT4_8Map);
 					if (t3dParam.currentMap) {
 						Tile3D_4x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
-						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
+						FreeMem(&allocCtx,t3dParam.currentMap);
 					} else {
-						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
-						goto error;
+						memErr = true;
 					}
 
 					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post4x8.png");
@@ -1167,22 +1191,27 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 							}
 							#endif
 						}
-						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
+						FreeMem(&allocCtx,t3dParam.currentMap);
 					} else {
+						memErr = true;
 						err = true;
 					}
-					if (err) { goto error; }
+					memErr |= err; // Go to error stuff later, but must make sure first we do not leak stuff.
 
 					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post4x4.png");
 				}
 
-				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream3Bit);
-				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream4Bit);
-				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream5Bit);
-				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream6Bit);
+				// Finally free everything, whatever happened.
+				FreeMem(&allocCtx,t3dParamPtrDelete.stream3Bit);
+				FreeMem(&allocCtx,t3dParamPtrDelete.stream4Bit);
+				FreeMem(&allocCtx,t3dParamPtrDelete.stream5Bit);
+				FreeMem(&allocCtx,t3dParamPtrDelete.stream6Bit);
 
-				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.colorStream);
-				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.tileStream);
+				FreeMem(&allocCtx,t3dParamPtrDelete.colorStream);
+				FreeMem(&allocCtx,t3dParamPtrDelete.tileStream);
+
+				// Then go to error ONCE we managed to clear everything...
+				if (memErr) { goto error; }
 			}
 			break;
 		}
@@ -1213,12 +1242,12 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 	res = true;
 error:
 	// Free all the memory allocated (or not : NULL is OK)
-	allocCtx.customFree(&allocCtx,pCtx->alphaChannel	);
-	allocCtx.customFree(&allocCtx,pCtx->mapRGB			);
-	allocCtx.customFree(&allocCtx,pCtx->mapRGBMask		);
-	allocCtx.customFree(&allocCtx,pCtx->mipMapMask		);
-	allocCtx.customFree(&allocCtx,pCtx->planeR			); // Contains R,G,B
-	allocCtx.customFree(&allocCtx,pCtx->tile4x4Mask		);
+	FreeMem(&allocCtx,pCtx->alphaChannel	);
+	FreeMem(&allocCtx,pCtx->mapRGB			);
+	FreeMem(&allocCtx,pCtx->mapRGBMask		);
+	FreeMem(&allocCtx,pCtx->mipMapMask		);
+	FreeMem(&allocCtx,pCtx->planeR			); // Contains R,G,B
+	FreeMem(&allocCtx,pCtx->tile4x4Mask		);
 	if (pCtx->decompCtx) {
 		ZSTD_freeDCtx((ZSTD_DCtx*)pCtx->decompCtx);
 	}
