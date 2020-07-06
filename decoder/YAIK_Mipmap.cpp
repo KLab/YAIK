@@ -20,15 +20,26 @@ Heap Buffer Allocator :
 [Target Buffer Mask	w * h]
 */
 
-bool Decompress1BitTiled			(YAIK_Instance* pCtx, MipmapHeader* header, u8* data_uncompressed) {
+bool Decompress1BitTiled			(YAIK_Instance* pCtx, MipmapHeader* header, u8* data_uncompressed, u32 dataLength) {
 	int shift = header->mipmapLevel;
 	int tileWidth = 1 << shift;
 	BoundingBox bbox = header->bbox;
+
+	// Tile Count
+	int pixCount = bbox.w * bbox.h;
+	if (dataLength < ((pixCount + 7)>>3)) {
+		SetErrorCode(YAIK_INVALID_MIPMAP_LEVEL);
+	}
+
 	bbox.x <<= shift;
 	bbox.y <<= shift;
 	bbox.w <<= shift;
 	bbox.h <<= shift;
 	pCtx->maskBBox = bbox;
+
+	if (!CheckInBound2D(pCtx,bbox)) {
+		SetErrorCode(YAIK_INVALID_MIPMAP_LEVEL);
+	}
 
 #if (USE_DEBUG_IMAGE)
 	debug1BitAsPngLinearOrSwizzled("DebugDecomp//Input_1bit_mipmap.png", data_uncompressed, header->bbox.w, header->bbox.h,header->bbox.w,/*LINEAR*/false);
@@ -40,54 +51,6 @@ bool Decompress1BitTiled			(YAIK_Instance* pCtx, MipmapHeader* header, u8* data_
 	u8* dst = pCtx->mipMapMask;
 
 	switch (tileWidth) {
-	case 64:
-	{
-//		PRINTF("TODO SWIZZLE 64");
-		while (1) {};
-
-/*
-		u32* dst32 = (u32*)dst;
-		// Map relative to x,y
-		for (int y = 0; y < bbox.h; y++) {
-			for (int x = 0; x < (bbox.w >> 6); x++) {
-				// Each bit read
-				int sft = (x & 7);
-				u32 v = (src[x >> 3] & (1 << sft)) ? 0xFFFFFFFF : 0;
-				// Write 8 byte.
-				*dst32++ = v;
-				*dst32++ = v;
-			}
-
-			if ((y & 0x3F) == 0x3F) {
-				src += ((bbox.w >> 6) >> 3);
-			}
-		}
-*/
-	}
-	break;
-	case 32:
-	{
-//		PRINTF("TODO SWIZZLE 32");
-		while (1) {};
-/*
-		u32* dst32 = (u32*)dst;
-		// Map relative to x,y
-		for (int y = 0; y < bbox.h; y++) {
-			for (int x = 0; x < (bbox.w >> 5); x++) {
-				// Each bit read
-				int sft = (x & 7);
-				u32 v = (src[x >> 3] & (1 << sft)) ? 0xFFFFFFFF : 0;
-				// Write 4 byte.
-				*dst32++ = v;
-			}
-
-			if ((y & 0x1F) == 0x1F) {
-				src += ((bbox.w >> 5) >> 3);
-			}
-		}
-*/
-	}
-	break;
 	case 16:
 	{
 
@@ -173,27 +136,10 @@ bool Decompress1BitTiled			(YAIK_Instance* pCtx, MipmapHeader* header, u8* data_
 		}
 	}
 	break;
+	// Unimplemented.
+	case 64:
+	case 32:
 	case 8:
-	{
-		/* SLOW, LINEAR...
-		// Map relative to x,y
-		for (int y = 0; y < bbox.h; y++) {
-			for (int x = 0; x < (bbox.w >> 3); x++) {
-				// Each bit read
-				int sft = (x & 7);
-				u8 v = (src[x >> 3] & (1 << sft)) ? 255 : 0;
-				// Write 1 byte.
-				*dst++ = v;
-			}
-
-			if ((y & 7) == 7) {
-				src += ((bbox.w >> 3) >> 3);
-			}
-		}*/
-//		PRINTF("TODO SWIZZLE 8");
-		while (1) {};
-	}
-	break;
 	default:
 	{
 		SetErrorCode(YAIK_INVALID_MIPMAP_LEVEL);

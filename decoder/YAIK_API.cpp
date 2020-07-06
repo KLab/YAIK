@@ -1,46 +1,34 @@
 #include "YAIK_functions.h"
 
-//---------------------------------------------------------------------------------------------
-// TEMPORARY STUFF !!!!
-//---------------------------------------------------------------------------------------------
 
 #ifdef YAIK_DEVEL
-	void StartCounter();
-	double GetCounter();
-
-	#define CHECK_MEM		_CrtCheckMemory();
-	#ifdef CHECK_MEM
+	//---------------------------------------------------------------------------------------------
+	// TEMPORARY STUFF For debug.
+	//---------------------------------------------------------------------------------------------
 	#include <Windows.h>
-	#endif
+	#define CHECK_MEM		_CrtCheckMemory();
 
-	#include <stdio.h>
-	#define PRINTF	printf;
+#include <stdio.h>
+	#define PRINTF	printf
 #else
-	#define PRINTF	; 
+	#define PRINTF
 #endif
 
 // memset, memcpy
 #include <memory.h>
-
+// 
 #include "../external/zstd/zstd.h"
-
-int BitCount(uint64_t v) {
-	int count = 0;
-	while (v != 0) {
-		if (v & 1) {
-			count++;
-		}
-		v >>= 1;
-	}
-	return count;
-}
-
-void releaseMemory(YAIK_Instance* pCtx, void* ptr) {
-//	delete[] ptr;
-}
 
 YAIK_ERROR_CODE	gErrorCode = YAIK_NO_ERROR;
 YAIK_Library	gLibrary;
+
+//-------------------------------------------------------------------------------------
+
+YAIK_ERROR_CODE YAIK_GetErrorCode	() {
+	YAIK_ERROR_CODE res = gErrorCode;
+	gErrorCode = YAIK_NO_ERROR;
+	return res;
+}
 
 void			SetErrorCode(YAIK_ERROR_CODE error) {
 	// Sticky bit...
@@ -49,24 +37,6 @@ void			SetErrorCode(YAIK_ERROR_CODE error) {
 	}
 }
 
-// TODO : Remap 8 Bit Alpha mask to RGBA 32 bit memory (Later in the process) when doing convert YCoCg full to RGBA final.
-//		  Problem : Will do the conversion ONLY on Mipmap bounding bbox. If smaller than full image, need to fill zeros.
-//			=== DO YCoCg->RGB IN PLACE !!! Save bandwidth, no copy. ===
-
-#define TAG_MIPMAP		(0x4d50494d)
-#define TAG_ALPHA		(0x4d504c41)
-#define TAG_COLOR		(0x4c4f4355)
-#define TAG_SMOOTH		(0x50414d53)
-#define TAG_PLANE		(0x544e4c50)
-#define TAG_GRADTILE	(0x4c495447)
-#define TAG_TILE3D		(0x4c544433)
-#define TAG_TILE2D		(0x4c544432)
-
-void wrongOrder() {
-	kassert(false); // Not implemented.
-}
-
-
 //-------------------------------------------------------------------------------------
 // Wrapper function to use memory allocators.
 // and other function used in this source file.
@@ -74,12 +44,14 @@ void wrongOrder() {
 u8*  AllocateMem (YAIK_SMemAlloc* allocCtx, size_t size) {
 	u8* res = (u8*)allocCtx->customAlloc(allocCtx, size);
 	if (!res) {
+		// Set sticky error code internally if return NULL.
 		SetErrorCode(YAIK_MALLOC_FAIL);
 	}
 	return res;
 }
 
 void FreeMem	 (YAIK_SMemAlloc* allocCtx, void*  ptr ) {
+	// NULL SAFE. Allow cleaner code path
 	if (ptr) { allocCtx->customFree(allocCtx, ptr); }
 }
 
@@ -93,9 +65,11 @@ YAIK_Instance* YAIK_Library::AllocInstance() {
 }
 
 void			YAIK_Library::FreeInstance(YAIK_Instance* inst) {
-	// [TODO : Support multithreading...]
+	// [TODO : Support multithreading... : MUTEX/ATOMIC]
 	kassert(inst != NULL); // CALLER CHECK !
-	freeStack[gLibrary.freeSlotCount++] = inst;
+	if (inst) {
+		freeStack[gLibrary.freeSlotCount++] = inst;
+	}
 }
 
 void kassert(bool validCond) {
@@ -104,14 +78,6 @@ void kassert(bool validCond) {
 		while (1) {
 		}
 	}
-}
-
-//-------------------------------------------------------------------------------------
-
-YAIK_ERROR_CODE YAIK_GetErrorCode() {
-	YAIK_ERROR_CODE res = gErrorCode;
-	gErrorCode = YAIK_NO_ERROR;
-	return res;
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -135,7 +101,7 @@ YAIK_LIB		YAIK_Init			(u8 maxDecodeThreadContext, YAIK_SMemAlloc* allocator) {
 
 		for (int n=0; n < 4; n++) {
 			gLibrary.LUT3D_BitFormat[n] = NULL;
-			gLibrary.LUT2D_BitFormat[n] = NULL;
+			// gLibrary.LUT2D_BitFormat[n] = NULL; DEPRECATED.
 		}
 
 		u8* memory = AllocateMem(&gLibrary.libraryAllocator, maxDecodeThreadContext * sizeof(YAIK_Instance) );
@@ -156,7 +122,7 @@ YAIK_LIB		YAIK_Init			(u8 maxDecodeThreadContext, YAIK_SMemAlloc* allocator) {
 		}
 	} else {
 		SetErrorCode(YAIK_INVALID_CONTEXT_COUNT);
-		return 0;
+		return NULL;
 	}
 }
 
@@ -164,7 +130,7 @@ YAIK_LIB		YAIK_Init			(u8 maxDecodeThreadContext, YAIK_SMemAlloc* allocator) {
 //		YAIK_AssignLUT
 // -----------------------------------------------------------------------------------------------
 
-void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompressedLength) {
+void			YAIK_AssignLUT		(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompressedLength) {
 	if (lib) {
 		// First, header the beginning of LUT file.
 		LUTHeader*	pHeader		= (LUTHeader*)lutDataCompressed;
@@ -176,53 +142,134 @@ void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompresse
 		int maxItemCount	= 0;
 		int maxPatternCount = 0;
 		int patternCount	= 0;
+		int allocSize;
 		bool is3DTbl = false;
+
 		if (pHeader->lutH[0] == 'L' && pHeader->lutH[1]=='U') {
 			switch (pHeader->lutH[2]) {
 			case 'L' : 
 				itemSize		= 3;
 				is3DTbl			= true;
-				maxItemCount	= 256;
-				maxPatternCount = 64; // Not 48 ! Leave empty space.
+				maxItemCount	= 256;	// MAX LUT TABLE AMOUNT
+				maxPatternCount = 64;	// Not 48 ! Leave empty space. Fully adressible space is NOT 48 pattern but 64.
 				patternCount	= 6;
+				/*
+					[For each 3 to 6 Bit]
+						[Table 0 Pattern 0  ]
+							[V0][V1][V2]      <--- Length of 8/16/32/64 entries.
+							...
+							...
+						[Table 0 Pattern 1  ]
+						[Table 0 Pattern ...]
+						[Table 0 Pattern 47 ]
+						----
+						[Empty Space, equivalent to pattern 48..63 ]
+						----
+						[Table 1 Pattern 0  ]
+						[Table 1 Pattern 1  ]
+						[Table 1 Pattern ...]
+						[Table 1 Pattern 47 ]
+						----
+						[Empty Space, equivalent to pattern 48..63 ]
+						----
+						...
+						...
+						...
+						----
+						[Table 255 Pattern 0  ]
+						[Table 255 Pattern 1  ]
+						[Table 255 Pattern ...]
+						[Table 255 Pattern 47 ]
+						----
+						[Empty Space, equivalent to pattern 48..63 ]
+
+						We allocate more in case we read further than 8/16/32/64 entries (+256 entries).
+						So 3D LUT Decoder do not need to check memory when reading pixel per pixel during decode.
+						It is just a precaution against voluntary attacks or bad encoding. Should never happen anyway.
+				 */
+
+				// [Copy paste code to avoid compiler warning about overflow.]
+				allocSize		= (((64+32+16+8)*itemSize) * maxItemCount * maxPatternCount) + (256*itemSize);
 				break;
 			case '2' :
 				itemSize		= 2;
 				is3DTbl			= false;
-				maxItemCount	= 2048;
+				maxItemCount	= 2048;	// MAX LUT TABLE AMOUNT (Accessible in DECODER stream). But this loader ALLOWS 256 TABLE MAX ANYWAY
 				maxPatternCount = 8;
 				patternCount	= 2;
-				break;
+				/*
+					[For each 3 to 6 Bit]
+						[Table 0 Pattern 0  ]
+							[V0][V1]			<--- Length of 8/16/32/64 entries. 
+							...
+							...
+						[Table 0 Pattern 1  ]
+						[Table 0 Pattern ...]
+						[Table 0 Pattern 7  ]
+						----
+						[Table 1 Pattern 0  ]
+						[Table 1 Pattern 1  ]
+						[Table 1 Pattern ...]
+						[Table 1 Pattern 7  ]
+						----
+						...
+						...
+						...
+						----
+						[Table 2047 Pattern 0  ]
+						[Table 2047 Pattern 1  ]
+						[Table 2047 Pattern ...]
+						[Table 2047 Pattern 47 ]
+
+						We allocate more in case we read further than 8/16/32/64 entries (+256 entries).
+						So 3D LUT Decoder do not need to check memory when reading pixel per pixel during decode.
+						It is just a precaution against voluntary attacks or bad encoding. Should never happen anyway.
+				 */
+
+				// [Copy paste code to avoid compiler warning about overflow.]
+				allocSize		= (((64+32+16+8)*itemSize) * maxItemCount * maxPatternCount) + (256*itemSize);
+
+				// 2D LUT DEPRECATED FOR NOW.
+				SetErrorCode(YAIK_INVALID_LUT);
+				return; // break;
+			default:
+				// Unsupported LUT Type.
+				SetErrorCode(YAIK_INVALID_LUT);
+				return;
 			}
 		} else {
+			// Not a valid LUT File.
 			SetErrorCode(YAIK_INVALID_LUT);
 			return;
 		}
 
-		// Value in file is u8
 		u32			expectedSize= (pHeader->entryCount+1) * (itemSize*(64+32+16+8));
 		if (expectedSize != streamSize) {
 			SetErrorCode(YAIK_INVALID_LUT);
 			return;
 		}
 		
+		// Values in file are u8...
 		// Actually, for SECURITY REASON, we will allocate the WHOLE possible adressable space
 		// from any stream. It will guarantee that no buffer overflow is possible on that side.
 		// We also add 256x3 byte to make sure that NO INDEX STREAM PATCHED with malicious or corrupted data don't read outside of the space.
 		//
 
-		u8* memory = AllocateMem(&gLibrary.libraryAllocator, (((64+32+16+8)*itemSize) * maxItemCount * maxPatternCount) + (256*itemSize)); // Fully adressible space is NOT 48 pattern but 64.
+		u8* memory = AllocateMem(&gLibrary.libraryAllocator, allocSize); 
 
 		if (memory) {
 			u8* pFill = memory;
 
 			for (int bit=3; bit<=6; bit++) {
-				if (is3DTbl) {
-					pLib->LUT3D_BitFormat[bit-3] = pFill;
+				pLib->LUT3D_BitFormat[bit-3] = pFill;
+				/*if (is3DTbl) {   DEPRECATED, ONLY 3D SUPPORTED NOW.
+				 
 				} else {
 					pLib->LUT2D_BitFormat[bit-3] = pFill;
-				}
+				} */
 
+				// Note : See 2D Table, we support up to 2048 entries in 2D case, but this header version
+				// limit to load 256 Tables, even in 2D mode.
 				for (int e=0; e <= pHeader->entryCount; e++) {
 					u8* originalX = &stream   [0];
 					u8* originalY = &stream   [1<<bit];
@@ -231,13 +278,16 @@ void			YAIK_AssignLUT	(YAIK_LIB lib, u8* lutDataCompressed, u32 lutDataCompresse
 #ifdef YAIK_DEVEL
 					for (int n=0; n < (1<<bit); n++) {
 						if ((originalX[n] > 128) || (originalY[n] > 128) || (originalZ && (originalZ[n] > 128))) {
-							printf("ERROR");
+							PRINTF("ERROR");
 							while (true) {
 							}
 						}
 					}
 #endif
 					
+					// Note : Code performance is poor, no unrolled loop.
+					//        But run only once per file loaded.
+					//        And keep code easier to maintain and generated code compact.
 					for (int pat=0; pat < patternCount; pat++) {
 						u8* TblX;
 						u8* TblY;
@@ -429,6 +479,7 @@ bool			YAIK_DecodeImagePre	(YAIK_LIB libMemory, void* sourceStreamAligned, u32 s
 				// Provide Default Memory Allocator (ALWAYS => SAVE ON PTR TEST !)
 				fillSize.userMemoryAllocator.customAlloc	= internal_allocFunc;
 				fillSize.userMemoryAllocator.customFree		= internal_freeFunc;
+
 				fillSize.userMemoryAllocator.customContext	= NULL;
 
 				return true;
@@ -448,6 +499,9 @@ bool			YAIK_DecodeImagePre	(YAIK_LIB libMemory, void* sourceStreamAligned, u32 s
 // -----------------------------------------------------------------------------------------------
 //		YAIK_DecodeImage
 // -----------------------------------------------------------------------------------------------
+
+/* [Wrapper to handle allocation, decompression and errors.]
+   We rely on ZStd internal concerning security if attacker create bad stream. */
 u8* DecompressData(YAIK_Instance* pCtx, u8* dataIn, u32 size, u32 expectedSize) {
 	u8* res = (u8*)AllocateMem(&pCtx->allocCtx,expectedSize);
 	if (res) {
@@ -461,18 +515,120 @@ u8* DecompressData(YAIK_Instance* pCtx, u8* dataIn, u32 size, u32 expectedSize) 
 	return res;
 }
 
+/* [Function to update masks internal bitmap when we transition from Single RGB Plane work to seperate R,G,B plane work]
+   To optimize performance, when we work on decompressing 3 planes at the same time, we only update the mask
+   as a single monochrome plane. 
+   
+   Once the decoder starts to work on different planes (2 or 1 plane only), we need to have mask updated seperately : 
+   this function duplicate the monochrome mask to all 3 planes to be then updated individually.
+ */
+void UpdateTileAndRGBMask(YAIK_Instance* pCtx) {
+	// We use a flag, once transition as been done, it is done.
+	// But transition can occur at various places inside the codec, thus making it as a function,
+	// called where possible transition could be necessary if it did not occured before.
+
+	if (pCtx->singleRGB) {
+		pCtx->singleRGB = false;
+		// Duplicate RGB Loaded pixel bitmap for G and B channel now. (until now it was RGB within a single bit-map)
+		memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask   ],pCtx->mapRGBMask,pCtx->sizeMapMask);
+		memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask<<1],pCtx->mapRGBMask,pCtx->sizeMapMask);
+		// Duplicate Processed map of 4x4 tile. (until now it was RGB within a single bit-map)
+		memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize   ],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
+		memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize<<1],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
+	}
+}
+
+void Debug_RGBandTILE(YAIK_Instance* pCtx, const char* nameRGB, const char* nameMask) {
+#if 1
+	#ifdef YAIK_DEVEL
+	BoundingBox bb;
+	bb.x=0; bb.y=0;
+	bb.w=pCtx->width; bb.h=pCtx->height;
+	DumpColorMap888Swizzle(nameRGB,pCtx->planeR,pCtx->planeG,pCtx->planeB,bb);
+	Dump4x4TileMap(nameMask, pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
+	#endif
+#endif
+}
+
+// --------------------------------------------------------
+// 32 bit constant defining the tags in the stream.
+#define TAG_MIPMAP		(0x4d50494d)
+#define TAG_ALPHA		(0x4d504c41)
+#define TAG_GRADTILE	(0x4c495447)
+#define TAG_TILE3D		(0x4c544433)
+#define TAG_TILE1D		(0x4c544431)
+
+// DEPRECATED FOR NOW.
+// #define TAG_PLANE		(0x544e4c50)
+// #define TAG_COLOR		(0x4c4f4355)
+// #define TAG_SMOOTH		(0x50414d53)
+// #define TAG_TILE2D		(0x4c544432)
+
+// Handle Wrong Tag order if needed.
+void wrongTagOrder() {
+	kassert(false); // Not implemented.
+}
+// --------------------------------------------------------
+
+// --------------------------------------------------------
+//  Wrapping of memory allocator into a tracker of allocation
+//  Allows to figure out right away if memory leak occurs
+//  within YAIK while doing dev and adding/fixing features.
+//  Automatically removed in release.
+// --------------------------------------------------------
+#ifdef YAIK_DEVEL
+void*	mem_buffers[200];
+int     mem_allocCount = 0;
+YAIK_SMemAlloc mem_wrapperAlloc;
+
+void*   checkAllocFunc (void* customContext, size_t size     ) {
+	mem_buffers[mem_allocCount] = mem_wrapperAlloc.customAlloc(customContext,size);
+	return mem_buffers[mem_allocCount++];
+}
+
+void    checkFreeFunc  (void* customContext, void*  address  ) {
+	for (int n=0; n < mem_allocCount; n++) {
+		if (mem_buffers[n] == address) {
+			mem_buffers[n] = NULL;
+			mem_wrapperAlloc.customFree(customContext,address);
+			return;
+		}
+	}
+
+	//Delete wrong invalid pointer or double delete.
+	printf("MEMORY CHECK : FREE %p NOT FOUND.", address);
+}
+
+void	checkAllocationEnd() {
+	for (int n=0; n < mem_allocCount; n++) {
+		if (mem_buffers[n]) {
+			printf("LEAK AT %i (adr %p)\n",n,mem_buffers[n]);
+		}
+	}
+
+	// Reset for another decode...
+	mem_allocCount = 0;
+}
+
+#else
+#define checkAllocationEnd
+#endif
+// --------------------------------------------------------
+
+
 bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDecodedImage* context) {
-	bool					res = false;
+	bool			res			= false;
 	YAIK_Instance*	pCtx		= (YAIK_Instance*)context->internalTag;
 	FileHeader*		pHeader		= (FileHeader*)sourceStreamAligned;
 	YAIK_SMemAlloc& allocCtx	= pCtx->allocCtx;
+	u8*				endStream   = ((u8*)sourceStreamAligned) + streamLength;
 	
-	pCtx->width			= pHeader->width;
-	pCtx->height		= pHeader->height;
-	pCtx->tileWidth     = RDIV8(pCtx->width);
-	pCtx->tileHeight    = RDIV8(pCtx->height);
+	pCtx->width					= pHeader->width;
+	pCtx->height				= pHeader->height;
+	pCtx->tileWidth				= RDIV8(pCtx->width);
+	pCtx->tileHeight			= RDIV8(pCtx->height);
 	
-	int singlePlaneSize = MUL64(pCtx->tileWidth * pCtx->tileHeight);
+	int singlePlaneSize			= MUL64(pCtx->tileWidth * pCtx->tileHeight);
 
 	pHeader++; // Skip header now.
 
@@ -484,28 +640,38 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 	if (context->userMemoryAllocator.customFree  == NULL)
 	{ SetErrorCode(YAIK_INVALID_CONTEXT_MEMALLOCATOR); goto error; }
 
-	// Now we can use the memory allocator.
-	pCtx->allocCtx	= context->userMemoryAllocator;
-	allocCtx	= pCtx->allocCtx;
+	#ifdef YAIK_DEVEL
+	// -------------------------------------------------------------
+	// Wrap the allocator into Memory Leak Check Allocator
+	mem_wrapperAlloc	= context->userMemoryAllocator;
+	context->userMemoryAllocator.customAlloc	= checkAllocFunc;
+	context->userMemoryAllocator.customFree		= checkFreeFunc;
+	// -------------------------------------------------------------
+	#endif
 
-	pCtx->planeR		= (u8*)allocCtx.customAlloc(&allocCtx,singlePlaneSize * 3);
-	pCtx->planeG		= pCtx->planeR + singlePlaneSize;
-	pCtx->planeB		= pCtx->planeG + singlePlaneSize;
+	// Now we can use the memory allocator.
+	pCtx->allocCtx				= context->userMemoryAllocator;
+	allocCtx					= pCtx->allocCtx;
+
+	pCtx->planeR				= (u8*)allocCtx.customAlloc(&allocCtx,singlePlaneSize * 3);
+	pCtx->planeG				= pCtx->planeR + singlePlaneSize;
+	pCtx->planeB				= pCtx->planeG + singlePlaneSize;
 
 	if (pCtx->planeR == NULL) 
 	{ SetErrorCode(YAIK_MALLOC_FAIL); goto error; }
 
 #ifdef YAIK_DEVEL
+	// Release Version does not need to clean. Garbage is OK as it will be overwritten.
 	memset(pCtx->planeR,0,singlePlaneSize * 3);
 #endif
 
 	// --- Convert Own Memory Allocator into ZStd Allocator
 	ZSTD_customMem mem;
-	mem.customAlloc		= pCtx->allocCtx.customAlloc;
-	mem.customFree		= pCtx->allocCtx.customFree;
-	mem.opaque			= pCtx->allocCtx.customContext;
+	mem.customAlloc				= pCtx->allocCtx.customAlloc;
+	mem.customFree				= pCtx->allocCtx.customFree;
+	mem.opaque					= pCtx->allocCtx.customContext;
 	// --- Pass the allocator and build a ZStd Context.
-	pCtx->decompCtx		= ZSTD_createDCtx_advanced(mem); // Same as ZSTD_createDCtx(); but using custom memory allocator.
+	pCtx->decompCtx				= ZSTD_createDCtx_advanced(mem); // Same as ZSTD_createDCtx(); but using custom memory allocator.
 
 	if (pCtx->decompCtx == NULL) 
 	{ SetErrorCode(YAIK_DECOMPRESSION_CREATE_FAIL); goto error; }
@@ -525,12 +691,16 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 	while (pBlock->tag.tag32 != 0xDEADBEEF) {
 		HeaderBase local = *pBlock;
 
-#ifdef YAIK_DEVEL		
-		printf("BLOCK %x, Size : %i",pBlock->tag.tag32, pBlock->length);
-#endif
+		PRINTF("BLOCK %x, Size : %i\n",pBlock->tag.tag32, pBlock->length);
 
 		pBlock++;
 		u8* endBlock = (&(((u8*)pBlock)[local.length]));
+
+		// Make sure we do not read outside of the memory stream for each block.
+		if (endBlock > endStream) {
+			SetErrorCode(YAIK_INVALID_TAG_ID);
+			goto error;
+		}
 
 		switch (local.tag.tag32) {
 		case TAG_MIPMAP:
@@ -539,13 +709,15 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				MipmapHeader* pHeader = (MipmapHeader*)pBlock;
 
 				// Decompress mipmap : decompress1BitMaskAlign8()
-				if ( ! Decompress1BitTiled(pCtx,pHeader, (u8*)&pHeader[1])) {
+				u8* streamStart = (u8*)&pHeader[1];
+				u32 length      = endBlock - streamStart; 
+				if ( ! Decompress1BitTiled(pCtx,pHeader, streamStart, length)) {
 					goto error;
 				}
 
 				state = 1;
 			} else {
-				wrongOrder(); goto error;
+				wrongTagOrder(); goto error;
 			}
 			break;
 		}
@@ -554,7 +726,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 			AlphaHeader* pHeader = (AlphaHeader*)pBlock;
 
 			if (state >= 2) {
-				wrongOrder(); goto error;
+				wrongTagOrder(); goto error;
 			}
 
 			// --- Decompress Alpha Block ---
@@ -564,16 +736,16 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 			if (state == 0) {
 				switch (MOD8(pHeader->parameters)) {
 				case AlphaHeader::IS_1_BIT_FULL:
-					resultOp = Decompress1BitMaskAlign8NoMask			(pCtx, pHeader->bbox, dataUncompressed);
+					resultOp = Decompress1BitMaskAlign8NoMask			(pCtx, pHeader->bbox, dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				case AlphaHeader::IS_6_BIT_FULL:
-					resultOp = Decompress6BitTo8BitAlphaNoMask			(pCtx, pHeader, false,dataUncompressed);
+					resultOp = Decompress6BitTo8BitAlphaNoMask			(pCtx, pHeader, false,dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				case AlphaHeader::IS_6_BIT_FULL_INVERSE:
-					resultOp = Decompress6BitTo8BitAlphaNoMask			(pCtx, pHeader, true, dataUncompressed);
+					resultOp = Decompress6BitTo8BitAlphaNoMask			(pCtx, pHeader, true, dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				case AlphaHeader::IS_8_BIT_FULL:
-					resultOp = Decompress8BitTo8BitAlphaNoMask			(pCtx, pHeader, dataUncompressed);
+					resultOp = Decompress8BitTo8BitAlphaNoMask			(pCtx, pHeader, dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				case AlphaHeader::IS_6_BIT_USEMIPMAPMASK:
 				case AlphaHeader::IS_6_BIT_USEMIPMAPMASK_INVERSE:
@@ -590,25 +762,25 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 			} else if (state == 1) {
 				switch (MOD8(pHeader->parameters)) {
 				case AlphaHeader::IS_1_BIT_FULL:
-					resultOp = Decompress1BitMaskAlign8NoMask			(pCtx, pHeader->bbox, dataUncompressed);
+					resultOp = Decompress1BitMaskAlign8NoMask			(pCtx, pHeader->bbox, dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				case AlphaHeader::IS_1_BIT_USEMIPMAPMASK:
 					SetErrorCode(YAIK_ALPHA_UNSUPPORTED_YET);
 					break;
 				case AlphaHeader::IS_6_BIT_FULL:
-					resultOp = Decompress6BitTo8BitAlphaNoMask			(pCtx, pHeader, false,dataUncompressed);
+					resultOp = Decompress6BitTo8BitAlphaNoMask			(pCtx, pHeader, false,dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				case AlphaHeader::IS_6_BIT_FULL_INVERSE:
-					resultOp = Decompress6BitTo8BitAlphaNoMask			(pCtx, pHeader, true, dataUncompressed);
+					resultOp = Decompress6BitTo8BitAlphaNoMask			(pCtx, pHeader, true, dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				case AlphaHeader::IS_6_BIT_USEMIPMAPMASK:
-					resultOp = Decompress6BitTo8BitAlphaUsingMipmapMask(pCtx, pHeader, false,dataUncompressed);
+					resultOp = Decompress6BitTo8BitAlphaUsingMipmapMask(pCtx, pHeader, false,dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				case AlphaHeader::IS_6_BIT_USEMIPMAPMASK_INVERSE:
-					resultOp = Decompress6BitTo8BitAlphaUsingMipmapMask(pCtx, pHeader, true, dataUncompressed);
+					resultOp = Decompress6BitTo8BitAlphaUsingMipmapMask(pCtx, pHeader, true, dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				case AlphaHeader::IS_8_BIT_FULL:
-					resultOp = Decompress8BitTo8BitAlphaNoMask			(pCtx, pHeader, dataUncompressed);
+					resultOp = Decompress8BitTo8BitAlphaNoMask			(pCtx, pHeader, dataUncompressed, pHeader->expectedDecompressionSize);
 					break;
 				default:
 					SetErrorCode(YAIK_INVALID_ALPHA_FORMAT);
@@ -622,7 +794,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 			// TODO : Support if encoder use ALPHA as MIPMAP ? -> Conversion from Alpha to Swizzled mask.
 				
-			releaseMemory(pCtx,dataUncompressed);
+			FreeMem(&allocCtx,dataUncompressed);
 
 			#if (USE_DEBUG_IMAGE)
 			int err = stbi_write_png("DebugDecomp\\DumpAlphaChannel.png",pCtx->width, pCtx->height, 1, pCtx->alphaChannel, pCtx->width);
@@ -673,14 +845,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					memset(pCtx->tile4x4Mask,0, pCtx->tile4x4MaskSize);
 				}
 
-				if (pHeader->plane != 7 && pCtx->singleRGB) {
-					pCtx->singleRGB = false;
-					// Duplicate RGB Loaded pixel bitmap for G and B channel now. (until now it was RGB within a single bit-map)
-					memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask   ],pCtx->mapRGBMask,pCtx->sizeMapMask);
-					memcpy(&pCtx->mapRGBMask[pCtx->sizeMapMask<<1],pCtx->mapRGBMask,pCtx->sizeMapMask);
-					// Duplicate Processed map of 4x4 tile. (until now it was RGB within a single bit-map)
-					memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize   ],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
-					memcpy(&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize<<1],pCtx->tile4x4Mask,pCtx->tile4x4MaskSize);
+				if (pHeader->plane != 7) {
+					UpdateTileAndRGBMask(pCtx);
 				}
 
 				// -------------------------------------------------------------------
@@ -699,7 +865,23 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				u8* dataUncompressedTilebitmap = (u8*)DecompressData(pCtx, after, pHeader->streamBitmapSize, sizeBitmap);
 				after += pHeader->streamBitmapSize;
-				u8* dataUncompressedRGB        = (u8*)DecompressData(pCtx, after, pHeader->streamRGBSize   , pHeader->streamRGBSizeUncompressed);
+				u8* dataCustCompressedRGB      = (u8*)DecompressData(pCtx, after, pHeader->streamRGBSizeZStd, pHeader->streamRGBSizeCustomCompressor);
+
+				u8* dataUncompressedRGB        = NULL;
+				if (dataCustCompressedRGB) {
+					dataUncompressedRGB = (u8*)AllocateMem(&allocCtx, pHeader->streamRGBSizeUncompressed);
+					if (dataUncompressedRGB) {
+						// (u8* input, int inputSize, int inputBufferSize, u8* output, int outputSize)
+						PaletteDecompressor(
+							dataCustCompressedRGB,pHeader->streamRGBSizeCustomCompressor,
+							pHeader->streamRGBSizeCustomCompressor,
+							dataUncompressedRGB,
+							pHeader->streamRGBSizeUncompressed,
+							pHeader->colorCompression
+						);
+					}
+					FreeMem(&allocCtx,dataCustCompressedRGB);
+				}
 
 				if (dataUncompressedRGB && dataUncompressedTilebitmap) {
 					// -------------------------------------------------------------------
@@ -726,26 +908,46 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				FreeMem(&allocCtx,dataUncompressedRGB);
 				FreeMem(&allocCtx,dataUncompressedTilebitmap);
 
-				BoundingBox bb;
-				bb.x=0; bb.y=0;
-				bb.w=512; bb.h=720;
-#ifdef YAIK_DEVEL
-	#if 1
-				//printf("Color Count Stream : %i\n",pHeader->streamRGBSizeUncompressed/3);
-				DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb);
-				if (pHeader->plane == 7) {
-					Dump4x4TileMap("Tile4x4.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
-				} else {
-					Dump4x4TileMap("Tile4x4.png", pCtx->tile4x4Mask, &pCtx->tile4x4Mask[pCtx->tile4x4MaskSize],&pCtx->tile4x4Mask[pCtx->tile4x4MaskSize<<1], pCtx->width>>2, pCtx->height>>2);
-				}
-				DebugRGBAsPng("RGBMap.png",pCtx->mapRGB, (pCtx->width>>2)+1, ((pCtx->height>>2)+1), 3);
-	#endif
-#endif
+				Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4.png");
+				DebugRGBAsPng   ("RGBMap.png",pCtx->mapRGB, (pCtx->width>>2)+1, ((pCtx->height>>2)+1), 3);
 			}
 			break;
 		}
+		case TAG_TILE1D:
+		{
+			if (state >= 4) {
+				state = 5;
+				Header1D* pHeader = (Header1D*)pBlock;
+				u8* streamTypeCmp = (u8*)&pHeader[1];
+				u8* streamPixCmp  = &streamTypeCmp[pHeader->streamTypeCnt];
+
+				u8* typeDecomp      = DecompressData(pCtx,streamTypeCmp,pHeader->streamTypeCnt ,pHeader->streamTypeUncmp );
+				u8* allocTypeDecomp = typeDecomp;
+				u8* pixStreamDecomp = DecompressData(pCtx,streamPixCmp ,pHeader->streamPixelBit,pHeader->streamPixelUncmp);
+				u8* allocPixStream  = pixStreamDecomp;
+
+				if (typeDecomp && pixStreamDecomp) {
+					UpdateTileAndRGBMask(pCtx);
+
+					Decompress1D(pCtx, &typeDecomp,&pixStreamDecomp,0, pHeader);
+					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_1DR.png");
+
+					Decompress1D(pCtx, &typeDecomp,&pixStreamDecomp,1, pHeader);
+					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_1DG.png");
+
+					Decompress1D(pCtx, &typeDecomp,&pixStreamDecomp,2, pHeader);
+					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_1DB.png");
+
+					allocCtx.customFree(&allocCtx, allocTypeDecomp);
+					allocCtx.customFree(&allocCtx, allocPixStream);
+				} else {
+					// [TODO] Error : Memory alloc or invalid stream.
+				}
+			}
+		}
+			break;
 		case TAG_TILE3D:
-		case TAG_TILE2D:
+		// case TAG_TILE2D: DEPRECATED
 		{
 			if (state <= 4) {
 				state = 4;
@@ -833,9 +1035,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					goto error;
 				}
 
-
-				// TODO : possibly some flag to speed up 'empty' channel. ?
-				// Start/End ? Empty ?
+				PaletteFullRangeRemapping(t3dParamPtrDelete.colorStream,pHeader->compressionRateColor,pHeader->streamColorCnt);
 
 				if (pHeader->sizeT16_8Map) {
 					t3dParam.currentMap	= DecompressData(pCtx,tmap16_8, pHeader->sizeT16_8MapCmp, pHeader->sizeT16_8Map);
@@ -847,15 +1047,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						goto error;
 					}
 
-#ifdef YAIK_DEVEL
-	#if 1
-					{ BoundingBox bb;
-					bb.x=0; bb.y=0;
-					bb.w=512; bb.h=720;
-					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
-					Dump4x4TileMap("Tile4x4_Post16x8.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
-	#endif
-#endif
+					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post16x8.png");
 				}
 
 
@@ -868,15 +1060,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 						goto error;
 					}
-#ifdef YAIK_DEVEL
-	#if 1
-					{ BoundingBox bb;
-					bb.x=0; bb.y=0;
-					bb.w=512; bb.h=720;
-					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
-					Dump4x4TileMap("Tile4x4_Post8x16.png", pCtx->tile4x4Mask, pCtx->tile4x4Mask,pCtx->tile4x4Mask, pCtx->width>>2, pCtx->height>>2);
-	#endif
-#endif
+					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post8x16.png");
 				}
 
 
@@ -887,6 +1071,15 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						if (is3D) {
 							Tile3D_8x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 						} else {
+							SetErrorCode(YAIK_INVALID_PLANE_ID);
+							err = true;
+
+							//-------------------------------------------------------------------------------
+							// 2D Correlation mode disabled/deprecated for now.
+							//-------------------------------------------------------------------------------
+							#if DEPRECATED
+
+							UpdateTileAndRGBMask(pCtx);
 							switch (pHeader->component) {
 							case 3:
 								Tile2D_8x8_RG (pCtx, pHeader, &t3dParam, gLibrary.LUT2D_BitFormat);
@@ -902,6 +1095,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 								err = true;
 								break;
 							}
+
+							#endif
 						}
 					} else {
 						err = true;
@@ -909,14 +1104,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 					allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 					if (err) { goto error; }
-#ifdef YAIK_DEVEL
-	#if 1
-					{ BoundingBox bb;
-					bb.x=0; bb.y=0;
-					bb.w=512; bb.h=720;
-					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
-	#endif
-#endif
+
+					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post8x8.png");
 				}
 
 				if (pHeader->sizeT8_4Map) {
@@ -929,14 +1118,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						goto error;
 					}
 
-#ifdef YAIK_DEVEL
-	#if 1
-					{ BoundingBox bb;
-					bb.x=0; bb.y=0;
-					bb.w=512; bb.h=720;
-					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
-	#endif
-#endif
+					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post8x4.png");
 				}
 
 				if (pHeader->sizeT4_8Map) {
@@ -949,14 +1131,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						goto error;
 					}
 
-#ifdef YAIK_DEVEL
-	#if 1
-					{ BoundingBox bb;
-					bb.x=0; bb.y=0;
-					bb.w=512; bb.h=720;
-					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
-	#endif
-#endif
+					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post4x8.png");
 				}
 
 				if (pHeader->sizeT4_4Map) {
@@ -966,6 +1141,15 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 						if (is3D) {
 							Tile3D_4x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
 						} else {
+							SetErrorCode(YAIK_INVALID_PLANE_ID);
+							err = true;
+
+							//-------------------------------------------------------------------------------
+							// 2D Correlation mode disabled/deprecated for now.
+							//-------------------------------------------------------------------------------
+							#if DEPRECATED
+							UpdateTileAndRGBMask(pCtx);
+
 							switch (pHeader->component) {
 							case 3:
 								Tile2D_4x4_RG (pCtx, pHeader, &t3dParam, gLibrary.LUT2D_BitFormat);
@@ -981,6 +1165,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 								err = true;
 								break;
 							}
+							#endif
 						}
 						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 					} else {
@@ -988,14 +1173,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					}
 					if (err) { goto error; }
 
-#ifdef YAIK_DEVEL
-	#if 1
-					{ BoundingBox bb;
-					bb.x=0; bb.y=0;
-					bb.w=512; bb.h=720;
-					DumpColorMap888Swizzle("GradientTest.png",pCtx->planeR,pCtx->planeG,pCtx->planeB,bb); }
-	#endif
-#endif
+					Debug_RGBandTILE(pCtx, "GradientTest.png", "Tile4x4_Post4x4.png");
 				}
 
 				allocCtx.customFree(&allocCtx,t3dParamPtrDelete.stream3Bit);
@@ -1008,9 +1186,6 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 			}
 			break;
 		}
-
-		// Other todo....
-
 		default:
 			SetErrorCode(YAIK_INVALID_TAG_ID); goto error;
 		}
@@ -1045,8 +1220,11 @@ error:
 	allocCtx.customFree(&allocCtx,pCtx->planeR			); // Contains R,G,B
 	allocCtx.customFree(&allocCtx,pCtx->tile4x4Mask		);
 	if (pCtx->decompCtx) {
-		ZSTD_freeCCtx((ZSTD_CCtx*)pCtx->decompCtx);
+		ZSTD_freeDCtx((ZSTD_DCtx*)pCtx->decompCtx);
 	}
 	gLibrary.FreeInstance(pCtx);
+
+	// Verify memory leak in DEVEL MODE.
+	checkAllocationEnd();
 	return res;
 }

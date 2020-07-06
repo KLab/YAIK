@@ -218,9 +218,21 @@ public:
 	,evaluateLUT		(false)
 	,evaluateLUT2D		(false)
 	,useYCoCg			(false)
+	,colorCompressionQuad(250)
+	,colorCompressionLUT3D(250)
+	,colorCompression1D  (255)
+	,rangeCompression1D  (15)
 	{
 
 	}
+
+	int colorCompressionQuad;
+	int colorCompressionLUT3D;
+	int colorCompression1D;
+	int rangeCompression1D;
+
+	void GenerateDynamicTileChunk(u8* stream, int sizeStream);
+	u8*  DynamicTileCompressor(u8* stream, Plane* src, Plane* map, Plane* debug);
 
 	void LoadLUT(int posLoading);
 	void EvalLutEnded();
@@ -696,8 +708,8 @@ protected:
 		}
 	};
 
-	EvalCtx3D	correlationPattern3D[256];
-	EvalCtx2D	correlationPattern2D[2048];
+	EvalCtx3D	correlationPattern3D[64];
+	EvalCtx2D	correlationPattern2D[64];
 	int			correlationPatternCount3D;
 	int			correlationPatternCount2D;
 	bool		isCaptureMode3D;
