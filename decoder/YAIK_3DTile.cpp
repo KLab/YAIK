@@ -1,6 +1,7 @@
 #include "YAIK_functions.h"
 
 // #define DEBUG_TILE3D
+// #define DEBUG_TILE3D_PIX
 // #define DEBUG_TILE1D
 
 #ifdef DEBUG_TILE1D
@@ -65,10 +66,11 @@ void Decompress1D  (YAIK_Instance* pInstance, u8** pTypeDecomp, u8** pPixStreamD
 	int invRangeCompr = (1<<24) / pHeader->compressionRange; // 0.24 / 0.4 -> 0.20
 	int tileCount = 0;
 
+	u32 stride4x4Map = RDIV16(iw);
+
 	for (u16 y=0; y<ih; y+=8) {
 //		idxX = idxY;
 		for (u16 x=0; x<iw; x+=8) {
-			u32 stride4x4Map = iw >> 4; // TODO => Wrong, need to fix, does not work for image width != mod 16
 			int PixUsedIdx = (x>>4) + ((y>>3)*stride4x4Map);
 			u8 patternQuad = pixelUsed[PixUsedIdx];
 
@@ -272,6 +274,8 @@ void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 	u8*		planeG = pInstance->planeG;
 	u8*		planeB = pInstance->planeB;
 
+	u32 stride4x4Map = RDIV16(iw);
+
 #ifdef DEBUG_TILE3D
 	printf("--- Decoder 16x8\n");
 #endif
@@ -358,7 +362,6 @@ void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							case 3: LUT = &LUT6Bit3D[tileLutIDX<<6]; break; // 6 Bit
 							} */
 
-							u32 stride4x4Map = iw >> 4; // TODO => Wrong, need to fix, does not work for image width != mod 16
 							int idxPixUsed = (xt>>4) + ((yt>>3)*stride4x4Map);
 							u8 patternQuad = pixelUsed[idxPixUsed];
 
@@ -402,28 +405,28 @@ void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -448,28 +451,28 @@ void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -497,28 +500,28 @@ void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										// Right Block
@@ -526,28 +529,28 @@ void Tile3D_16x8(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -628,6 +631,8 @@ void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 	u8*		planeG = pInstance->planeG;
 	u8*		planeB = pInstance->planeB;
 
+	u32 stride4x4Map = RDIV16(iw);
+
 	// RGB Version Only.
 #ifdef DEBUG_TILE3D
 	printf("--- Decoder 8x16\n");
@@ -693,7 +698,7 @@ void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							u8* indexStream = dataStreamNBit[format];
 
 #ifdef DEBUG_TILE3D
-							printf("Tile:%i [%i,%i,%i]->[%i,%i,%i]\n",(int)tile,(int)RGB[0],(int)RGB[1],(int)RGB[2],(int)RGB[3],(int)RGB[4],(int)RGB[5]);
+							printf("Tile[%i] : %i,%i [%i,%i,%i]->[%i,%i,%i]\n",(int)tile,xt,yt,(int)RGB[0],(int)RGB[1],(int)RGB[2],(int)RGB[3],(int)RGB[4],(int)RGB[5]);
 #endif
 
 							// LUT For Index Ready.
@@ -705,7 +710,6 @@ void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							case 2: LUT = &LUT5Bit3D[tileLutIDX<<5]; break; // 5 Bit
 							case 3: LUT = &LUT6Bit3D[tileLutIDX<<6]; break; // 6 Bit
 							} */
-							u32 stride4x4Map = iw >> 4; // TODO => Wrong, need to fix, does not work for image width != mod 16
 
 							int PixUsedIdx = (xt>>4) + ((yt>>3)*stride4x4Map);
 							u8 patternQuad = pixelUsed[PixUsedIdx];
@@ -749,28 +753,28 @@ void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -796,28 +800,28 @@ void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -845,28 +849,28 @@ void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										// Right Block
@@ -874,21 +878,21 @@ void Tile3D_8x16(YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
@@ -991,6 +995,8 @@ void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 	u8*		planeG = pInstance->planeG;
 	u8*		planeB = pInstance->planeB;
 
+	u32 stride4x4Map = RDIV16(iw);
+
 	// RGB Version Only.
 #ifdef DEBUG_TILE3D
 	printf("--- Decoder 8x8\n");
@@ -1075,7 +1081,6 @@ void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							case 2: LUT = &LUT5Bit3D[tileLutIDX<<5]; break; // 5 Bit
 							case 3: LUT = &LUT6Bit3D[tileLutIDX<<6]; break; // 6 Bit
 							} */
-							u32 stride4x4Map = iw >> 4; // TODO => Wrong, need to fix, does not work for image width != mod 16
 
 #ifdef DEBUG_TILE3D
 							printf("Tile:%i [%i,%i,%i]->[%i,%i,%i]\n",(int)tile,(int)RGB[0],(int)RGB[1],(int)RGB[2],(int)RGB[3],(int)RGB[4],(int)RGB[5]);
@@ -1123,28 +1128,28 @@ void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -1170,28 +1175,28 @@ void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -1219,28 +1224,28 @@ void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										// Right Block
@@ -1248,28 +1253,28 @@ void Tile3D_8x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										L = &LUT[*indexStream++];
 										*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 										*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 										*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 										printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 										// Next Line
@@ -1346,6 +1351,8 @@ void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 	u8*		planeR = pInstance->planeR;
 	u8*		planeG = pInstance->planeG;
 	u8*		planeB = pInstance->planeB;
+
+	u32 stride4x4Map = RDIV16(iw);
 
 	// RGB Version Only.
 #ifdef DEBUG_TILE3D
@@ -1436,7 +1443,6 @@ void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							case 2: LUT = &LUT5Bit3D[tileLutIDX<<5]; break; // 5 Bit
 							case 3: LUT = &LUT6Bit3D[tileLutIDX<<6]; break; // 6 Bit
 							} */
-							u32 stride4x4Map = iw >> 4; // TODO => Wrong, need to fix, does not work for image width != mod 16
 
 							int PixUsedIdx = (xt>>4) + ((yt>>3)*stride4x4Map);
 							u8 patternQuad = pixelUsed[PixUsedIdx];
@@ -1482,28 +1488,28 @@ void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -1529,28 +1535,28 @@ void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -1573,28 +1579,28 @@ void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									// Right Block
@@ -1602,28 +1608,28 @@ void Tile3D_8x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									// Next Line
@@ -1694,6 +1700,8 @@ void Tile3D_4x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 	u8*		planeR = pInstance->planeR;
 	u8*		planeG = pInstance->planeG;
 	u8*		planeB = pInstance->planeB;
+
+	u32 stride4x4Map = RDIV16(iw);
 
 	// RGB Version Only.
 #ifdef DEBUG_TILE3D
@@ -1782,8 +1790,6 @@ void Tile3D_4x8 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							case 2: LUT = &LUT5Bit3D[tileLutIDX<<5]; break; // 5 Bit
 							case 3: LUT = &LUT6Bit3D[tileLutIDX<<6]; break; // 6 Bit
 							} */
-							u32 stride4x4Map = iw >> 4; // TODO => Wrong, need to fix, does not work for image width != mod 16
-
 							int PixUsedIdx = (xt>>4) + ((yt>>3)*stride4x4Map);
 							u8 patternQuad = pixelUsed[PixUsedIdx];
 
@@ -1828,28 +1834,28 @@ nextVerticalBlock:
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 
@@ -1928,6 +1934,8 @@ void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 	u8*		planeR = pInstance->planeR;
 	u8*		planeG = pInstance->planeG;
 	u8*		planeB = pInstance->planeB;
+
+	u32 stride4x4Map = RDIV16(iw);
 
 	// RGB Version Only.
 #ifdef DEBUG_TILE3D
@@ -2016,8 +2024,6 @@ void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 							case 2: LUT = &LUT5Bit3D[tileLutIDX<<5]; break; // 5 Bit
 							case 3: LUT = &LUT6Bit3D[tileLutIDX<<6]; break; // 6 Bit
 							} */
-							u32 stride4x4Map = iw >> 4; // TODO => Wrong, need to fix, does not work for image width != mod 16
-
 							int PixUsedIdx = (xt>>4) + ((yt>>3)*stride4x4Map);
 							u8 patternQuad = pixelUsed[PixUsedIdx];
 
@@ -2061,28 +2067,28 @@ void Tile3D_4x4 (YAIK_Instance* pInstance, HeaderTile3D* pHeader, TileParam* par
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL++ = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL++ = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL++ = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 									L = &LUT[*indexStream++];
 									*tileRL   = RGB[0] + ((diff[0]*L[0])>>7);
 									*tileGL   = RGB[1] + ((diff[1]*L[1])>>7);
 									*tileBL   = RGB[2] + ((diff[2]*L[2])>>7);
-#ifdef DEBUG_TILE3D
+#ifdef DEBUG_TILE3D_PIX
 									printf("%i,%i(%i) -> [%i] -> [%i,%i,%i]\n",xt,yt,pmC++,indexStream[-1],L[0],L[1],L[2]);
 #endif
 

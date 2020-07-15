@@ -1224,6 +1224,13 @@ int GetTileEncode_Y(TileInfo& outTile, Plane* src, Plane* validPixel, Plane* qua
 //    EncoderContext
 // -------------------------------------------------------------------------------------------------
 
+bool EncoderContext::SetImageToEncode(Image* newImage) {
+	if (original) {
+		delete original;
+	}
+	original = newImage;
+	return (original != NULL);
+}
 
 bool EncoderContext::LoadImagePNG(const char* fileName) {
 	// Create all the necessary LUT for internal encoding.
@@ -3484,7 +3491,7 @@ bool PaletteCompressor(u8* input, int size, u8* output, u32* maxSize) {
 	#undef WriteCodeBook
 exit:
 	if (!error) {
-		printf("-->Reduce stream from %i to %i by specific compressor.\n",*maxSize,streamIdx);
+		printf("-->Reduce stream from %i to %i by compressor. ",*maxSize,streamIdx);
 	}
 
 	// Override size for output.
@@ -3682,6 +3689,24 @@ exit:
 	return !error;
 }
 
+unsigned char* EncoderContext::CompressStream(u8* data, int size, int* sizeOut) {
+	int dstSize = size * 2;
+	if (dstSize < 1000) { dstSize = 1000; }
+
+	unsigned char* pZStd = new unsigned char[dstSize];
+	size_t result = (int)ZSTD_compress(pZStd, dstSize, data,size, 18);
+	
+	if (ZSTD_isError(result)) {
+		const char* nameR = ZSTD_getErrorName(result);
+		printf("ZSTD Compress error : %s\n", nameR);
+		return NULL;
+	} else {
+		fileOutSize += result;
+		*sizeOut = result; // to 32 bit.
+		return pZStd;
+	}
+}
+
 int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* srcB, Plane* srcC, Image* testOutput, bool useYCoCg, int tileShiftX, int tileShiftY) {
 	CheckMipmapMask();
 
@@ -3745,6 +3770,8 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 	int xBBTileCount = ((imgW+(swizzleParseX-1)) / swizzleParseX);
 	int yBBTileCount = ((imgH+(swizzleParseY-1)) / swizzleParseY);
 
+	int strideY = (((imgW+swizzleParseX-1) / swizzleParseX) * (swizzleParseX / tileSizeX));
+
 	int sizeBitmap  = (xBBTileCount * yBBTileCount * bitCount) >> 3; // No need for rounding, bitCount garantees multibyte alignment.
 	u8* pFillBitMap = new u8[sizeBitmap];
 	memset(pFillBitMap,0, sizeBitmap);
@@ -3766,28 +3793,37 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 	int gTile6[256];
 	int bTile6[256];
 
-	int pos = 0;
+//	int pos = 0;
 
 	int minX = imgW; int maxX = 0;
 	int minY = imgH; int maxY = 0;
 
+	int posYS; 
+	int posXS;
+	int stepYS = bitCount * xBBTileCount;
+	int stepXS = bitCount;						// 1 block.
+	int stepY  = swizzleParseX / tileSizeX;		// Inside block vertically.
+	//  stepX  = 1
+
 	// Linear 2D order for big tile defined by swizzling.
+	posYS = 0;
 	for (int swizzley=0; swizzley < imgH; swizzley += swizzleParseY) {
+		posXS = posYS;
 		for (int swizzlex=0; swizzlex < imgW; swizzlex += swizzleParseX) {
 			// Linear 2D order inside each big tile
+
+			int posY = posXS;
 			for (int y=swizzley; y < swizzley+swizzleParseY; y+= tileSizeY) {
 				// Because of big tile parsing, we may lookup outside of image with sub-tiles. (Y-Axis)
-				if (y >= imgH) {
-					// Keep bit counter aligned for next line...
-					pos += ((swizzley+swizzleParseY - imgH) / tileSizeY) * (swizzleParseX / tileSizeX); 
+				if (y >= imgH || ((y + tileSizeY) > imgH)) {
 					break; 
 				}
 
+				int pos = posY;
 				for (int x=swizzlex; x < swizzlex+swizzleParseX; x+= tileSizeX) {
 					// Because of big tile parsing, we may lookup outside of image with sub-tiles. (X-Axis)
-					if (x >= imgW) {
-						// Keep bit counter aligned for next line...
-						pos += ((swizzlex+swizzley - imgW) / tileSizeX); 
+					// Check tile left and RIGHT pos to fit...
+					if (x >= imgW || ((x + tileSizeX) > imgW)) {
 						break; 
 					}
 
@@ -3986,6 +4022,7 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 			
 							// Is this pixel have been processed ?
 							bool isOutside;
+
 							pFillBitMap[pos>>3] |= (1<<(pos&7));
 
 							// Mark the tile for next passes (avoid compressing sub tile inside bigger tile from previous pass)
@@ -4176,7 +4213,7 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 								}
 							}
 #endif
-//							printf("[%i,%i] -> %i\n",x,y,(wrRgbStream - rgbStream) / 3);
+							printf("[%i,%i] -> %i\n",x,y,(wrRgbStream - rgbStream) / 3);
 
 							/*
 							printf("Tile Color TL : %i,%i,%i\n",TL[0],TL[1],TL[2]);
@@ -4187,16 +4224,19 @@ int  EncoderContext::FittingQuadSmooth(int rejectFactor, Plane* srcA, Plane* src
 						} // End Tile Accepted as gradient tile.
 					} // End Accept Tile for encoding test.
 					
-nextTile:
-
+				nextTile:
 					pos++;
 				}
+				posY += stepY;
 			}
+			posXS += stepXS;
 		}
+		posYS += stepYS;
 	}
 
+	int uncompressRGBSize = wrRgbStream - rgbStream;
 
-	if (!evaluateLUT) {
+	if (!evaluateLUT && (maxX > minX) && (maxY > minY) && (uncompressRGBSize > 0)) {
 		HeaderGradientTile header;
 
 		/*
@@ -4221,19 +4261,17 @@ nextTile:
 		header.format	= tileShiftX | (tileShiftY<<3);
 		header.plane	= PlaneBit;
 
-		unsigned char* pZStdStreamBitmap = new unsigned char[sizeBitmap*2];
-		int result = (int)ZSTD_compress(pZStdStreamBitmap, sizeBitmap*2, pFillBitMap,sizeBitmap, 18);
-		fileOutSize += result;
-		printf("Gradient Map %ix%i : %i\n",tileSizeX, tileSizeY,result);
-	
+		printf("Tile Count : %i, ",TileDone);
+
+		int result; unsigned char* pZStdStreamBitmap = CompressStream(pFillBitMap,sizeBitmap, &result);
+		printf("Gradient Map %ix%i : %i , ",tileSizeX, tileSizeY,result);
 		header.streamBitmapSize = result;
 
-		int uncompressRGBSize = wrRgbStream - rgbStream;
 		int sizeDec = streamW * streamH * 3;
 		unsigned char* pZStdStreamRGB = new unsigned char[streamH * streamW * 3 * 2];
 #if 0
 		// Compress the RGB stream.
-		result = (int)ZSTD_compress(pZStdStreamRGB, sizeDec * 2, rgbStream, uncompressRGBSize, 18);
+		pZStdStreamRGB = CompressStream(rgbStream, uncompressRGBSize, &result);
 		header.streamRGBSizeUncompressed	= uncompressRGBSize;
 #else
 		u8* tmpBuffer = new u8[uncompressRGBSize*3];
@@ -4260,7 +4298,7 @@ nextTile:
 			}
 			delete[] decompTest;
 
-			result = (int)ZSTD_compress(pZStdStreamRGB, sizeDec * 2, tmpBuffer, sizeInOut, 18);
+			pZStdStreamRGB = CompressStream(tmpBuffer, sizeInOut, &result);
 		}
 		header.streamRGBSizeCustomCompressor= sizeInOut;
 		header.streamRGBSizeUncompressed	= uncompressRGBSize;
@@ -4311,7 +4349,6 @@ nextTile:
 		delete[] pZStdStreamRGB;
 		delete[] pZStdStreamBitmap;
 
-		delete[] pFillBitMap;
 
 		if (dumpImage) {
 			if (tileSizeX ==  4) { smoothMap->SaveAsPNG("NewSmoothMap4.png"); }
@@ -4320,6 +4357,8 @@ nextTile:
 		}
 	}
 
+	delete[] pFillBitMap;
+	delete[] rgbStream;
 	return TileDone;
 }
 
@@ -6206,7 +6245,6 @@ u8* createOrderTable(int w, int h,int mode) {
 void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShiftX, int tileShiftY) {
 	BoundingBox3D bb3;
 	bool isOutSide;
-	int pos       = 0;
 	int matchTile = 0;
 
 	if ((tileShiftX > 4) || (tileShiftY > 4)) {
@@ -6241,28 +6279,35 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 	int tileSizeX = 1<<tileShiftX;
 	int tileSizeY = 1<<tileShiftY;
 
-	printf("----- Tile Size %i,%i\n", tileSizeX, tileSizeY);
+	printf("----- Tile Size %i,%i : ", tileSizeX, tileSizeY);
 
 	int bitCountMap = HeaderGradientTile::getBitmapSwizzleSize(tileShiftX,tileShiftY,imgW,imgH);
 
-	// Linear 2D order for big tile defined by swizzling.
-	for (int swizzley=0; swizzley < imgH; swizzley += swizzleParseY) {
-		for (int swizzlex=0; swizzlex < imgW; swizzlex += swizzleParseX) {
+	int xBBTileCount = ((imgW+(swizzleParseX-1)) / swizzleParseX);
+	int posYS; 
+	int posXS;
+	int stepYS = bitCount * xBBTileCount;
+	int stepXS = bitCount;						// 1 block.
+	int stepY  = swizzleParseX / tileSizeX;		// Inside block vertically.
+	//  stepX  = 1
 
+	// Linear 2D order for big tile defined by swizzling.
+	posYS = 0;
+	for (int swizzley=0; swizzley < imgH; swizzley += swizzleParseY) {
+		posXS = posYS;
+		for (int swizzlex=0; swizzlex < imgW; swizzlex += swizzleParseX) {
 			// Target size tile inside quad tile
+			int posY = posXS;
 			for (int y=swizzley; y < swizzley+swizzleParseY; y+= tileSizeY) {
 				// Because of big tile parsing, we may lookup outside of image with sub-tiles. (Y-Axis)
-				if (y >= imgH) {
-					// Keep bit counter aligned for next line...
-					pos += ((swizzley+swizzleParseY - imgH) / tileSizeY) * (swizzleParseX / tileSizeX); 
+				if (y >= imgH || ((y + tileSizeY) > imgH)) {
 					break; 
 				}
 
+				int pos = posY;
 				for (int x=swizzlex; x < swizzlex+swizzleParseX; x+= tileSizeX) {
 					// Because of big tile parsing, we may lookup outside of image with sub-tiles. (X-Axis)
-					if (x >= imgW) {
-						// Keep bit counter aligned for next line...
-						pos += ((swizzlex+swizzley - imgW) / tileSizeX); 
+					if (x >= imgW || ((x + tileSizeX) > imgW)) {
 						break; 
 					}
 
@@ -6271,11 +6316,6 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 					// For all tiles.
 					bool pixelInside;
 					bb3 = buildBBox3D(input,useYCoCg,mapSmoothTile,x,y,tileSizeX,tileSizeY,pixelsInTile,maskTile,pixelInside);
-
-					//
-//								Convert6Bit(rgb);
-
-
 
 					// Export normalized values...
 					int dX = bb3.x1 - bb3.x0;
@@ -6474,19 +6514,18 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 						if (found) {
 							matchTile++;
 
-							/*
-							printf("Tile[%i,%i] PixelCnt:%i [%i Bit,Mode:%i,Pattern:%i] (RGB:[%i,%i,%i]->[%i,%i,%i])\n", 
+							printf("Tile3D[%i,%i] PixelCnt:%i [%i Bit,Mode:%i,Pattern:%i] (RGB:[%i,%i,%i]->[%i,%i,%i])\n", 
 								x,y,pixelsInTile,   
 								bitMode+3,foundM48,foundE, 
 									bb3.x0,bb3.y0,bb3.z0,
 									bb3.x1,bb3.y1,bb3.z1
 							);
-							*/
 
 							// Color 1
 							int comprCol = 0;
 
 							bb3 = roundNBit(bb3,comprCol);
+
 
 							corr3D_colorStream[streamColorCnt++] = bb3.x0 >> comprCol;
 							corr3D_colorStream[streamColorCnt++] = bb3.y0 >> comprCol;
@@ -6728,20 +6767,20 @@ void EncoderContext::Correlation3DSearch(Image* input,Image* output, int tileShi
 
 
 					} // End 'valid tile' for verification ?
-					
-					kassert(pos < bitCountMap);
 					pos++;
 				} // Tile X end
+				posY += stepY;
 			} // Tile Y end
+			posXS += stepXS;
 		} // Swizzle block X end
+		posYS += stepYS;
 	} // Swizzle block Y end
-	printf("\n-----------------\nMATCHED TILE : %i\n-------------\n\n",matchTile);
+	printf(" MATCHED TILE : %i\n",matchTile);
 }
 
 void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image* output, int tileShiftX, int tileShiftY) {
 	BoundingBox bb2;
 	bool isOutSide;
-	int pos       = 0;
 	int matchTile = 0;
 
 	if ((tileShiftX > 4) || (tileShiftY > 4)) {
@@ -6780,24 +6819,31 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 
 	int bitCountMap = HeaderGradientTile::getBitmapSwizzleSize(tileShiftX,tileShiftY,imgW,imgH);
 
-	// Linear 2D order for big tile defined by swizzling.
-	for (int swizzley=0; swizzley < imgH; swizzley += swizzleParseY) {
-		for (int swizzlex=0; swizzlex < imgW; swizzlex += swizzleParseX) {
+	int xBBTileCount = ((imgW+(swizzleParseX-1)) / swizzleParseX);
+	int posYS; 
+	int posXS;
+	int stepYS = bitCount * xBBTileCount;
+	int stepXS = bitCount;						// 1 block.
+	int stepY  = swizzleParseX / tileSizeX;		// Inside block vertically.
+	//  stepX  = 1
 
+	// Linear 2D order for big tile defined by swizzling.
+	posYS = 0;
+	for (int swizzley=0; swizzley < imgH; swizzley += swizzleParseY) {
+		posXS = posYS;
+		for (int swizzlex=0; swizzlex < imgW; swizzlex += swizzleParseX) {
+			int posY = posXS;
 			// Target size tile inside quad tile
 			for (int y=swizzley; y < swizzley+swizzleParseY; y+= tileSizeY) {
 				// Because of big tile parsing, we may lookup outside of image with sub-tiles. (Y-Axis)
 				if (y >= imgH) {
-					// Keep bit counter aligned for next line...
-					pos += ((swizzley+swizzleParseY - imgH) / tileSizeY) * (swizzleParseX / tileSizeX); 
 					break; 
 				}
 
+				int pos = posY;
 				for (int x=swizzlex; x < swizzlex+swizzleParseX; x+= tileSizeX) {
 					// Because of big tile parsing, we may lookup outside of image with sub-tiles. (X-Axis)
 					if (x >= imgW) {
-						// Keep bit counter aligned for next line...
-						pos += ((swizzlex+swizzley - imgW) / tileSizeX); 
 						break; 
 					}
 
@@ -7252,8 +7298,11 @@ void EncoderContext::Correlation2DSearch(PlaneMode planeMode, Image* input,Image
 					kassert(pos < bitCountMap);
 					pos++;
 				} // Tile X end
+				posY += stepY;
 			} // Tile Y end
+			posXS += stepXS;
 		} // Swizzle block X end
+		posYS += stepYS;
 	} // Swizzle block Y end
 	printf("\n-----------------\nMATCHED TILE : %i\n-------------\n\n",matchTile);
 }
@@ -7629,7 +7678,9 @@ void EncoderContext::deleteAllocated3DParts() {
 }
 
 void EncoderContext::RegisterAndCreate3DLut() {
-	correlationPatternCount3D = 0;
+	
+	// Already loaded...
+	if (correlationPatternCount3D != 0) { return; }
 
 	/*
 	LinearEqu3D diag3D;
@@ -8439,13 +8490,13 @@ u8* EncoderContext::DynamicTileCompressor(u8* stream, Plane* src, Plane* map, Pl
 						*stream++ = 0;
 						// Visualize most used color for now.
 						debug->SetPixel(x + offX[n],y + offY[n],colorIndex0);
-						printf("S:%i -> V:%i\n",stream[-1],colorIndex0);
+//						printf("S:%i -> V:%i\n",stream[-1],colorIndex0);
 					} else {
 						int idx = GetValueModel1(v,minCol,delta,rangeCompression1D);
 						*stream++ = 1 + idx;
 						int vOut = DecompModel1(idx,minCol,delta,rangeCompression1D);
 						debug->SetPixel(x + offX[n],y + offY[n],vOut);
-						printf("S:%i -> V:%i\n",stream[-1],vOut);
+//						printf("S:%i -> V:%i\n",stream[-1],vOut);
 					}
 				}
 
@@ -8471,6 +8522,7 @@ u8* EncoderContext::DynamicTileCompressor(u8* stream, Plane* src, Plane* map, Pl
 }
 
 void EncoderContext::GenerateDynamicTileChunk(u8* stream, int sizeStream) {
+	if (sizeStream > 0) {
 		HeaderBase headerTag;
 		headerTag.tag.tag8[0] = '1';
 		headerTag.tag.tag8[1] = 'D';
@@ -8520,6 +8572,7 @@ void EncoderContext::GenerateDynamicTileChunk(u8* stream, int sizeStream) {
 
 		delete[] pZStdStream;
 		delete[] pZStdType;
+	}
 }
 
 u8* DynamicTileAnalyze(u8* stream, Plane* src, Plane* map, Plane* debug) {
@@ -9083,7 +9136,7 @@ void EncoderContext::Convert(const char* source, const char* outputFile, bool du
 
 			StartCorrelationSearch(true);
 
-			isCaptureMode3D = true;
+			// isCaptureMode3D = true;
 
 	//		output->Clear();
 			Correlation3DSearch(original, output,4,3); // Test in RGB Space.

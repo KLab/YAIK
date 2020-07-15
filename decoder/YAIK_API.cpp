@@ -502,17 +502,22 @@ bool			YAIK_DecodeImagePre	(YAIK_LIB libMemory, void* sourceStreamAligned, u32 s
 
 /* [Wrapper to handle allocation, decompression and errors.]
    We rely on ZStd internal concerning security if attacker create bad stream. */
-u8* DecompressData(YAIK_Instance* pCtx, u8* dataIn, u32 size, u32 expectedSize) {
-	u8* res = (u8*)AllocateMem(&pCtx->allocCtx,expectedSize);
-	if (res) {
-		size_t result = ZSTD_decompressDCtx((ZSTD_DCtx*)pCtx->decompCtx, res, expectedSize, dataIn, size);
-		if (expectedSize != result) {
-			SetErrorCode	(YAIK_INVALID_DECOMPRESSION);
-			FreeMem			(&pCtx->allocCtx,res);
-			res = NULL;
+u8* DecompressData(YAIK_Instance* pCtx, u8* dataIn, u32 size, u32 expectedSize, u32 securityOffset) {
+	if (size) {
+		u8* res = (u8*)AllocateMem(&pCtx->allocCtx,expectedSize + securityOffset);
+		if (res) {
+			size_t result = ZSTD_decompressDCtx((ZSTD_DCtx*)pCtx->decompCtx, res, expectedSize, dataIn, size);
+			if (expectedSize != result) {
+				SetErrorCode	(YAIK_INVALID_DECOMPRESSION);
+				FreeMem			(&pCtx->allocCtx,res);
+				res = NULL;
+			}
 		}
+		return res;
+	} else {
+		// 0 Stream avoid allocation and return NULL.
+		return NULL;
 	}
-	return res;
 }
 
 /* [Function to update masks internal bitmap when we transition from Single RGB Plane work to seperate R,G,B plane work]
@@ -620,7 +625,20 @@ void	checkAllocationEnd() {
 #define checkAllocationEnd
 #endif
 // --------------------------------------------------------
+u32 CheckTileCount(u8* map, u32 sizeMap) {
+	u32 u32mapSize = sizeMap >> 2;
+	u32* map32 = (u32*)map;
+	u32* map32E= &map32[u32mapSize];
+	u32 bitCount = 0;
+	while (map32 < map32E) {
+		u32 v = *map32++;
+		v = v - ((v >> 1) & 0x55555555);                    // reuse input as temporary
+		v = (v & 0x33333333) + ((v >> 2) & 0x33333333);     // temp
+		bitCount += ((v + (v >> 4) & 0xF0F0F0F) * 0x1010101) >> 24; // count
+	}
 
+	return bitCount;
+}
 
 bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDecodedImage* context) {
 	bool			res			= false;
@@ -634,6 +652,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 	pCtx->tileWidth				= RDIV8(pCtx->width);
 	pCtx->tileHeight			= RDIV8(pCtx->height);
 	
+	u32 tile4x4Count			= RDIV4(pCtx->width)*RDIV4(pCtx->height);
+
 	int singlePlaneSize			= MUL64(pCtx->tileWidth * pCtx->tileHeight);
 
 	pHeader++; // Skip header now.
@@ -668,7 +688,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 #ifdef YAIK_DEVEL
 	// Release Version does not need to clean. Garbage is OK as it will be overwritten.
-	memset(pCtx->planeR,0,singlePlaneSize * 3);
+	memset(pCtx->planeR,0x80,singlePlaneSize * 3);
 #endif
 
 	// --- Convert Own Memory Allocator into ZStd Allocator
@@ -702,7 +722,7 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 		pBlock++;
 		u8* endBlock = (&(((u8*)pBlock)[local.length]));
 
-		// Make sure we do not read outside of the memory stream for each block.
+		// [Security] Make sure we do not read outside of the memory stream for each block.
 		if (endBlock > endStream) {
 			SetErrorCode(YAIK_INVALID_TAG_ID);
 			goto error;
@@ -737,6 +757,8 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 			// --- Decompress Alpha Block ---
 			u8* dataUncompressed = DecompressData(pCtx, (u8*)&pHeader[1], pHeader->streamSize, pHeader->expectedDecompressionSize);
+
+			// [TODO : Support Alpha NULL] -> Fill with 255.
 
 			bool resultOp = true;
 			if (state == 0) {
@@ -871,17 +893,17 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 
 				u8* dataUncompressedTilebitmap = (u8*)DecompressData(pCtx, after, pHeader->streamBitmapSize, sizeBitmap);
 				after += pHeader->streamBitmapSize;
-				u8* dataCustCompressedRGB      = (u8*)DecompressData(pCtx, after, pHeader->streamRGBSizeZStd, pHeader->streamRGBSizeCustomCompressor);
+				u8* dataCustCompressedRGB      = (u8*)DecompressData(pCtx, after, pHeader->streamRGBSizeZStd, pHeader->streamRGBSizeCustomCompressor, /*Secure buffer*/128*3);
 
 				u8* dataUncompressedRGB        = NULL;
 				bool mem_fail = false;
 				if (dataCustCompressedRGB) {
-					dataUncompressedRGB = (u8*)AllocateMem(&allocCtx, pHeader->streamRGBSizeUncompressed);
+					dataUncompressedRGB = (u8*)AllocateMem(&allocCtx, (u64)pHeader->streamRGBSizeUncompressed + /*Secure Buffer*/((u64)tile4x4Count*12));
 					if (dataUncompressedRGB) {
 						// (u8* input, int inputSize, int inputBufferSize, u8* output, int outputSize)
 						PaletteDecompressor(
 							dataCustCompressedRGB,pHeader->streamRGBSizeCustomCompressor,
-							pHeader->streamRGBSizeCustomCompressor,
+							pHeader->streamRGBSizeCustomCompressor + (128*3),
 							dataUncompressedRGB,
 							pHeader->streamRGBSizeUncompressed,
 							pHeader->colorCompression
@@ -905,6 +927,9 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					// NOTE : Swizzling parameters are not passed to the functions because they are already optimized
 					//        for the specific size.
 					// POSSIBLY TODO : Add Assert to check that implementation is matching specs here before call. But unlikely to change.
+
+					// [Security : dataUncompressedRGB is overallocated matching image size, only read garbage RGB in case of attack on the file format]
+					// [Security : dataUncompressedTilebitmap is validated to have size matching the image too]
 					switch (pHeader->format) {
 					case HeaderGradientTile::TILE_16x16: DecompressGradient16x16(pCtx, dataUncompressedTilebitmap,dataUncompressedRGB, pR, pG, pB, pHeader->plane); break;
 					case HeaderGradientTile::TILE_16x8:  DecompressGradient16x8	(pCtx, dataUncompressedTilebitmap,dataUncompressedRGB, pR, pG, pB, pHeader->plane); break;
@@ -994,6 +1019,13 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				u8* tmap4_8    = &tmap8_4   [pHeader->sizeT8_4MapCmp  ];
 				u8* tmap4_4    = &tmap4_8   [pHeader->sizeT4_8MapCmp  ];
 
+				// [SECURITY] All based on Unsigned integer relative offsets,
+				// Test the last item validate all.
+				if (tmap4_4 > endBlock) {
+					SetErrorCode(YAIK_INVALID_TAG_ID);
+					goto error;
+				}
+
 				TileParam t3dParam;
 
 				// [SECURITY] Any value decoded OK => Covered by LUT size. 
@@ -1039,6 +1071,11 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				// [SECURITY] Invalid color range will just generate wrong color for decoding in case stream is tampered. -> No need for check either.
 				t3dParam.colorStream= DecompressData(pCtx,colorStream,pHeader->comprColorSize,pHeader->streamColorCnt);				// Tile Count x 6
 
+				// Number of tile is identical to the number of color pair.
+				if (pHeader->streamColorCnt != (pHeader->streamTypeCnt*6)) {
+					// TODO [Security] ?;
+				}
+
 				TileParam t3dParamPtrDelete = t3dParam; // Copy Struct.
 
 				if		(	!valid3BitStream
@@ -1064,10 +1101,19 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				PaletteFullRangeRemapping(t3dParamPtrDelete.colorStream,pHeader->compressionRateColor,pHeader->streamColorCnt);
 
 				bool memErr = false;
+				u32  Security_TileCounterFromMap = 0;
+
 				if (pHeader->sizeT16_8Map) {
 					t3dParam.currentMap	= DecompressData(pCtx,tmap16_8, pHeader->sizeT16_8MapCmp, pHeader->sizeT16_8Map);
 					if (t3dParam.currentMap) {
-						Tile3D_16x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+						// [Security Check here]
+						u32 tileCount = CheckTileCount(t3dParam.currentMap,pHeader->sizeT16_8Map);						
+						Security_TileCounterFromMap += tileCount;
+						if (tileCount && (Security_TileCounterFromMap <= pHeader->streamTypeCnt)) {
+
+							Tile3D_16x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+
+						} // else write else for all cases 16x8 , 8x16, 8x8, .... (ERROR / Security)
 						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 					} else {
 						memErr = true;
@@ -1080,7 +1126,14 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				if (pHeader->sizeT8_16Map) {
 					t3dParam.currentMap	= DecompressData(pCtx,tmap8_16, pHeader->sizeT8_16MapCmp, pHeader->sizeT8_16Map);
 					if (t3dParam.currentMap) {
-						Tile3D_8x16(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+						// [Security Check here]
+						u32 tileCount = CheckTileCount(t3dParam.currentMap,pHeader->sizeT8_16Map);						
+						Security_TileCounterFromMap += tileCount;
+						if (tileCount && (Security_TileCounterFromMap <= pHeader->streamTypeCnt)) {
+
+							Tile3D_8x16(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+
+						}
 						allocCtx.customFree(&allocCtx,t3dParam.currentMap);
 					} else {
 						memErr = true;
@@ -1094,7 +1147,14 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					t3dParam.currentMap	= DecompressData(pCtx,tmap8_8,  pHeader->sizeT8_8MapCmp,  pHeader->sizeT8_8Map );
 					if (t3dParam.currentMap) {
 						if (is3D) {
-							Tile3D_8x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+							// [Security Check here]
+							u32 tileCount = CheckTileCount(t3dParam.currentMap,pHeader->sizeT8_8Map);
+							Security_TileCounterFromMap += tileCount;
+							if (tileCount && (Security_TileCounterFromMap <= pHeader->streamTypeCnt)) {
+
+								Tile3D_8x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+							
+							}
 						} else {
 							SetErrorCode(YAIK_INVALID_PLANE_ID);
 							err = true;
@@ -1137,7 +1197,14 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				if (pHeader->sizeT8_4Map) {
 					t3dParam.currentMap	= DecompressData(pCtx,tmap8_4, pHeader->sizeT8_4MapCmp, pHeader->sizeT8_4Map);
 					if (t3dParam.currentMap) {
-						Tile3D_8x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+						// [Security Check here]
+						u32 tileCount = CheckTileCount(t3dParam.currentMap,pHeader->sizeT8_4Map);
+						Security_TileCounterFromMap += tileCount;
+						if (tileCount && (Security_TileCounterFromMap <= pHeader->streamTypeCnt)) {
+
+							Tile3D_8x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+
+						}
 						FreeMem(&allocCtx,t3dParam.currentMap);
 					} else {
 						memErr = true;
@@ -1149,7 +1216,16 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 				if (pHeader->sizeT4_8Map) {
 					t3dParam.currentMap	= DecompressData(pCtx,tmap4_8, pHeader->sizeT4_8MapCmp, pHeader->sizeT4_8Map);
 					if (t3dParam.currentMap) {
-						Tile3D_4x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+						if (t3dParam.currentMap) {
+							// [Security Check here]
+							u32 tileCount = CheckTileCount(t3dParam.currentMap,pHeader->sizeT4_8Map);
+							Security_TileCounterFromMap += tileCount;
+							if (tileCount && (Security_TileCounterFromMap <= pHeader->streamTypeCnt)) {
+
+								Tile3D_4x8(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+
+							}
+						}
 						FreeMem(&allocCtx,t3dParam.currentMap);
 					} else {
 						memErr = true;
@@ -1163,7 +1239,14 @@ bool			YAIK_DecodeImage	(void* sourceStreamAligned, u32 streamLength, YAIK_SDeco
 					t3dParam.currentMap	= DecompressData(pCtx,tmap4_4, pHeader->sizeT4_4MapCmp, pHeader->sizeT4_4Map);
 					if (t3dParam.currentMap) {
 						if (is3D) {
-							Tile3D_4x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+							// [Security Check here]
+							u32 tileCount = CheckTileCount(t3dParam.currentMap,pHeader->sizeT4_4Map);
+							Security_TileCounterFromMap += tileCount;
+							if (tileCount && (Security_TileCounterFromMap <= pHeader->streamTypeCnt)) {
+
+								Tile3D_4x4(pCtx,pHeader,&t3dParam,gLibrary.LUT3D_BitFormat);
+
+							}
 						} else {
 							SetErrorCode(YAIK_INVALID_PLANE_ID);
 							err = true;

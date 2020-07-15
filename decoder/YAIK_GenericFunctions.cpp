@@ -142,6 +142,7 @@ bool PaletteDecompressor(u8* input, int inputSize, int inputBufferSize, u8* outp
 	u8  codeBookSize = *input++;
 	int pos          = 1;
 	u8* lastRGB		 = &output[outputSize-3];
+	u8* inputEnd     = &input[inputBufferSize];
 	u8* parse		 = NULL;
 	u8* write		 = NULL;
 
@@ -169,14 +170,21 @@ bool PaletteDecompressor(u8* input, int inputSize, int inputBufferSize, u8* outp
 	lastColor = output;
 
 	while (write <= lastRGB) {
+		if (input >= inputEnd) { goto error; }
 		c = *input++;
 		if (c & 0x80) {
 			if (c & 0x40) {
 				// [1][1][Distance Ref]
 				int index = ((c & 0x3F)+2)*(-3);
 				lastColor = &write[index];
+				// Check read out of buffer memory (can read garbage from Code book, don't care)
+				if (lastColor < output) { goto error; }
 			} else {
 				if (write > lastRGB) { goto error; }
+
+				// Check if read does not go out of source.
+				static const u8 bitCount[] = { 0,1,1,2,1,2,2,3 };
+				if ((input+bitCount[c&7]) > inputEnd) { goto error; }
 
 				switch ((c>>3) & 7) {
 				case 0:

@@ -23,7 +23,7 @@ void SetErrorCode								(YAIK_ERROR_CODE	error);
 u8*  AllocateMem								(YAIK_SMemAlloc*	allocCtx, size_t size);
 void FreeMem									(YAIK_SMemAlloc*	allocCtx, void*  ptr );
 // Decompress the input data, allocate buffer to store the result, set error code if failure (+ return NULL)
-u8*	 DecompressData								(YAIK_Instance*		pCtx    , u8* dataIn , u32 size, u32 expectedSize);
+u8*	 DecompressData								(YAIK_Instance*		pCtx    , u8* dataIn , u32 size, u32 expectedSize, u32 securityOffset = 0);
 // Boundingbox is inside the image.
 bool CheckInBound2D								(YAIK_Instance*     pCtx    , BoundingBox& bbox);
 

@@ -56,9 +56,9 @@ void DecompressGradient16x16(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 
 	// RGB Version Only.
 
-	for (u16 y=0; y<(ih>>4); y+=4) {
+	for (u16 y=0; y<(ih>>4); y+=4) { // 64 pix (4x16)
 		idxX = idxY;
-		for (u16 x=0; x<(iw>>4); x+=4) {
+		for (u16 x=0; x<(iw>>4); x+=4) { // 64 pix (4x16)
 			u16 tWord = *tileBitmap++;
 
 			// Early skip ! 16 tile if nothing.
@@ -227,6 +227,7 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 	int strideY8	= (pInstance->strideRGBMap * 2);
 	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
 	int strideTile	= (iw>>3)<<6;
+	int strideTile4 = RDIV16(iw);
 
 	// RGB Version Only.
 
@@ -280,6 +281,8 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							xt    += 32;
 						}
 					}
+
+					int offUsedPixY = ((yt >> 3)*strideTile4);
 
 					for (; xt<x+64; xt+=16) {
 						if ((xt >= iw) || (msk == 0)) {
@@ -349,10 +352,11 @@ void DecompressGradient16x8	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							// Decompress 2x 8x8 Left and Right tile in loop.
 							//
 
+
+							int idxMapTile4  = (xt >> 4) + offUsedPixY;
+							pixelUsed[idxMapTile4] = 0xFF;
+
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
-
-							pixelUsed[idxTilePlane>>7] = 0xFF;
-
 							u8* tileRL = &planeR[idxTilePlane];
 							u8* tileGL = &planeG[idxTilePlane];
 							u8* tileBL = &planeB[idxTilePlane];
@@ -421,6 +425,7 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 	int strideY16	= (pInstance->strideRGBMap * 4);
 	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
 	int strideTile	= (iw>>3)<<6;
+	int strideTile4 = RDIV16(iw);
 
 	// RGB Version Only.
 
@@ -471,6 +476,8 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 						idxX2 += 4;		// 2 Tile of 2 colors
 						xt    += 16;	// 16 Pixel on screen.
 					}
+
+					int offUsedPixY = ((yt >> 3)*strideTile4);
 
 					for (;xt<x+64; xt+=8) {
 						if ((xt >= iw) || (msk == 0)) {
@@ -543,8 +550,9 @@ void DecompressGradient8x16	(YAIK_Instance* pInstance, u8* dataUncompressedTileb
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
 							
 							u8 v8 = (xt & 8) ? 0xF0 : 0x0F;
-							pixelUsed[idxTilePlane>>7]				|= v8;
-							pixelUsed[(idxTilePlane+strideTile)>>7]	|= v8;
+							int idxMapTile4  = (xt >> 4) + offUsedPixY;
+							pixelUsed[idxMapTile4]				|= v8;
+							pixelUsed[idxMapTile4+strideTile4]	|= v8;
 
 							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
@@ -615,6 +623,7 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 	int strideY8	= (pInstance->strideRGBMap * 2);
 	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
 	int strideTile	= (iw>>3)<<6;
+	int strideUsedY = RDIV16(iw);
 
 	// RGB Version Only.
 
@@ -671,6 +680,8 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 						idxX2 += 4;		// 2 Tile of 2 colors
 						xt    += 16;	// 16 Pixel on screen.
 					}
+
+					int offUsedPixY = ((yt >> 3)*strideUsedY);
 
 					for (;xt<x+64; xt+=8) {
 						if ((xt >= iw) || (msk == 0)) {
@@ -739,9 +750,10 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							//
 							// Decompress 2x 8x8 Left and Right tile in loop.
 							//
+							int idxUsedPix = (xt >> 4) + offUsedPixY;
+							pixelUsed[idxUsedPix] |= (xt & 8) ? 0xF0 : 0x0F;
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6));
-							pixelUsed[idxTilePlane>>7] |= (xt & 8) ? 0xF0 : 0x0F;
 
 //							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
@@ -786,8 +798,6 @@ void DecompressGradient8x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 }
 
 void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebitmap, u8* dataUncompressedRGB, u8* planeR, u8* planeG, u8* planeB, u8 planeBit) {
-	u8* bckPal = dataUncompressedRGB;
-
 	if (planeBit != 7) {
 		// Not supported in this version.
 #ifdef YAIK_DEVEL
@@ -814,6 +824,7 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 	int strideY4	= (pInstance->strideRGBMap    );
 	int strideY32	= (pInstance->strideRGBMap * 8); // 8 block of 4 pixel = skip 32.
 	int strideTile	= (iw>>3)<<6;
+	int strideUsedY = RDIV16(iw);
 
 	// RGB Version Only.
 
@@ -869,6 +880,8 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 						idxX2 += 4;		// 2 Tile of 2 colors
 						xt    += 16;	// 16 Pixel on screen.
 					}
+
+					int offUsedPixY = ((yt >> 3)*strideUsedY);
 
 					for (;xt<x+64; xt+=8) {
 						if ((xt >= iw) || (msk == 0)) {
@@ -934,10 +947,12 @@ void DecompressGradient8x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 							);
 #endif
 
-							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + ((yt & 4)<<3); // ((yt & 4)<<3) = Odd / Even Tile vertically (4x8)
 
+							int idxUsedPix = (xt >> 4) + offUsedPixY;
 							u8 v8 = 0x03<<((yt & 4)>>1);	// 0 or 2
-							pixelUsed[idxTilePlane>>7] |= v8<<((xt & 8)>>1); // Shift 0/2 for Y Axis, then 0/4 for X Axis.
+							pixelUsed[idxUsedPix] |= v8<<((xt & 8)>>1); // Shift 0/2 for Y Axis, then 0/4 for X Axis.
+
+							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + ((yt & 4)<<3); // ((yt & 4)<<3) = Odd / Even Tile vertically (4x8)
 
 //							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
@@ -1008,6 +1023,7 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 	int strideY8	= (pInstance->strideRGBMap * 2);
 	int strideY64	= (pInstance->strideRGBMap * 16); // 16 block of 4 pixel = skip 64.
 	int strideTile	= (iw>>3)<<6;
+	int strideUsedY = RDIV16(iw);
 
 	// RGB Version Only.
 
@@ -1064,6 +1080,8 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 						idxX2 += 2;		// 1 Tile of 2 colors
 						xt    += 8;		// 8 Pixel on screen.
 					}
+
+					int offUsedPixY = ((yt >> 3)*strideUsedY);
 
 					for (;xt<x+32; xt+=4) {
 						if ((xt >= iw) || (msk == 0)) {
@@ -1131,9 +1149,9 @@ void DecompressGradient4x8	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4);
 							
-							int idxPix = (xt>>4) + ((yt>>3) * (strideTile>>7));
+							int idxUsedPix = (xt >> 4) + offUsedPixY;
 							int v8 = (0x5)<<(((xt & 0x4)>>2)|((xt & 0x8)>>1));
-							pixelUsed[idxPix] |= v8; // Shift 0/1/2/3 for X Axis.
+							pixelUsed[idxUsedPix] |= v8; // Shift 0/1/2/3 for X Axis.
 
 //							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
@@ -1223,6 +1241,7 @@ void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 	int strideY4	= pInstance->strideRGBMap;
 	int strideY32	= pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
 	int strideTile	= (iw>>3)<<6;
+	int strideUsedY = RDIV16(iw);
 
 	// RGB Version Only.
 
@@ -1281,6 +1300,7 @@ void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 					}
 
 					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+					int offUsedPixY = ((yt >> 3)*strideUsedY);
 
 					for (;xt<x+32; xt+=4) {
 						if ((xt >= iw) || (msk == 0)) {
@@ -1352,7 +1372,8 @@ void DecompressGradient4x4	(YAIK_Instance* pInstance, u8* dataUncompressedTilebi
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
 
-							pixelUsed[idxTilePlane>>7] |= til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1)); // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							int idxUsedPix = (xt >> 4) + offUsedPixY;
+							pixelUsed[idxUsedPix] |= til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1)); // Shift 0/2 for Y Axis, then 0/1 for X Axis.
 
 //							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
@@ -1419,6 +1440,7 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 	int strideY4	= pInstance->strideRGBMap;
 	int strideY32	= pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
 	int strideTile	= (iw>>3)<<6;
+	int strideUsedY = RDIV16(iw);
 
 	// RG Version.
 
@@ -1477,6 +1499,7 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 					}
 
 					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+					int offUsedPixY = ((yt >> 3)*strideUsedY);
 					
 					for (;xt<x+32; xt+=4) {
 						if ((xt >= iw) || (msk == 0)) {
@@ -1587,9 +1610,9 @@ void DecompressGradient4x4RG					(YAIK_Instance* pInstance
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
 
 							int val = til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1));
-							int idxMarkTileAdr = idxTilePlane>>7;
-							pixelUsedR[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
-							pixelUsedG[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							int idxUsedPix = (xt >> 4) + offUsedPixY;
+							pixelUsedR[idxUsedPix] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							pixelUsedG[idxUsedPix] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
 
 //							for (int tileY=0; tileY <16; tileY+=8) {
 								u8* tileRL = &planeR[idxTilePlane];
@@ -1656,6 +1679,7 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 	int strideY4	= pInstance->strideRGBMap;
 	int strideY32	= pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
 	int strideTile	= (iw>>3)<<6;
+	int strideUsedY = RDIV16(iw);
 
 	// RGB Version Only.
 
@@ -1714,6 +1738,7 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 					}
 
 					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+					int offUsedPixY = ((yt >> 3)*strideUsedY);
 
 					for (;xt<x+32; xt+=4) {
 						if ((xt >= iw) || (msk == 0)) {
@@ -1824,9 +1849,9 @@ void DecompressGradient4x4GB					(YAIK_Instance* pInstance
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
 
 							int val = til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1));
-							int idxMarkTileAdr = idxTilePlane>>7;
-							pixelUsedG[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
-							pixelUsedB[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							int idxUsedPix = (xt >> 4) + offUsedPixY;
+							pixelUsedG[idxUsedPix] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							pixelUsedB[idxUsedPix] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
 
 //							for (int tileY=0; tileY <16; tileY+=8) {
 //								u8* tileRL = &planeR[idxTilePlane];
@@ -1900,8 +1925,7 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 	int strideY4	= pInstance->strideRGBMap;
 	int strideY32	= pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
 	int strideTile	= (iw>>3)<<6;
-
-	// RGB Version Only.
+	int strideUsedY = RDIV16(iw);
 
 	for (u16 y=0; y<ih; y+=32) {
 		idxX = idxY;
@@ -1958,6 +1982,7 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 					}
 
 					int til4 = 1<<((yt & 4)>>1); // 0 or 2
+					int offUsedPixY = ((yt >> 3)*strideUsedY);
 
 					for (;xt<x+32; xt+=4) {
 						if ((xt >= iw) || (msk == 0)) {
@@ -2067,9 +2092,9 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 
 							int idxTilePlane = (((yt>>3)*strideTile) + ((xt>>3)<<6)) + (xt & 4) + ((yt & 4)<<3); // 4x4 tile inside 8x8 tile => (xt & 4) + ((yt & 4)<<3)
 							int val = til4<<(((xt & 0x4)>>2)|((xt & 0x8)>>1));
-							int idxMarkTileAdr = idxTilePlane>>7;
-							pixelUsedR[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
-							pixelUsedB[idxMarkTileAdr] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							int idxUsedPix = (xt >> 4) + offUsedPixY;
+							pixelUsedR[idxUsedPix] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
+							pixelUsedB[idxUsedPix] |= val; // Shift 0/2 for Y Axis, then 0/1 for X Axis.
 
 							u8* tileRL = &planeR[idxTilePlane];
 //							u8* tileGL = &planeG[idxTilePlane];
@@ -2078,20 +2103,20 @@ void DecompressGradient4x4RB					(YAIK_Instance* pInstance
 								int nW = 4-ty;
 								// Vertical Blend
 								int rL = (rgbCorner[0][0] * nW) + (rgbCorner[1][0] * ty);
-//									int gL = (rgbCorner[0][1] * nW) + (rgbCorner[1][1] * ty);
+//								int gL = (rgbCorner[0][1] * nW) + (rgbCorner[1][1] * ty);
 								int bL = (rgbCorner[0][2] * nW) + (rgbCorner[1][2] * ty);
 								int rR = (rgbCorner[0][3] * nW) + (rgbCorner[1][3] * ty);
-//									int gR = (rgbCorner[0][4] * nW) + (rgbCorner[1][4] * ty);
+//								int gR = (rgbCorner[0][4] * nW) + (rgbCorner[1][4] * ty);
 								int bR = (rgbCorner[0][5] * nW) + (rgbCorner[1][5] * ty);
 
 								// Horizontal blending...
 								// 16 Color Line Left Tile
 								tileRL[0] = rL>>2;	tileRL[1] = (rL*3 + rR)>>4; tileRL[2] = (rL + rR)>>3; tileRL[3] = (rL + rR*3)>>4;
-//									tileGL[0] = gL>>2;	tileGL[1] = (gL*3 + gR)>>4; tileGL[2] = (gL + gR)>>3; tileGL[3] = (gL + gR*3)>>4;
+//								tileGL[0] = gL>>2;	tileGL[1] = (gL*3 + gR)>>4; tileGL[2] = (gL + gR)>>3; tileGL[3] = (gL + gR*3)>>4;
 								tileBL[0] = bL>>2;	tileBL[1] = (bL*3 + bR)>>4; tileBL[2] = (bL + bR)>>3; tileBL[3] = (bL + bR*3)>>4;
 
 								tileRL += 8;
-//									tileGL += 8;
+//								tileGL += 8;
 								tileBL += 8;
 							}
 						}
@@ -2132,13 +2157,12 @@ void DecompressGradient4x4R						(YAIK_Instance* pInstance
 
 	u64* tileBitmap = (u64*)dataUncompressedTilebitmap;
 
-	// RGB Version Only.
-
 	int idxY = 0;
 	int idxX;
 	int strideY4  = pInstance->strideRGBMap;
 	int strideY32 = pInstance->strideRGBMap * 8; // 8 block of 4 pixel = skip 32.
 	int strideTile = (iw>>3)<<6;
+
 	for (u16 y=0; y<ih; y+=32) {
 		idxX = idxY;
 		for (u16 x=0; x<iw; x+=32) {

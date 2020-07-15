@@ -222,6 +222,7 @@ public:
 	,colorCompressionLUT3D(250)
 	,colorCompression1D  (255)
 	,rangeCompression1D  (15)
+	,correlationPatternCount3D (0)
 	{
 
 	}
@@ -282,6 +283,7 @@ public:
 
 	EncoderStats* pStats;
 
+	bool SetImageToEncode	(Image* newImage);
 	bool LoadImagePNG		(const char* name);
 	void Convert			(const char* name, const char* outputFile, bool dump);
 	void SaveTo2RGB			(bool doConversion, const char* optionnalFileName = NULL);
@@ -722,6 +724,8 @@ protected:
 	Mode computeValues2D(int flipMode, int px,int py, float* mapX, float* mapY, int pixCnt, BoundingBox bb, EvalCtx2D& ev, int& minSumErrDiff);
 	Mode computeValues3D(int tileSizeX, int tileSizeY, u8* mask, int flipMode, Image* input,int px,int py, BoundingBox3D bb, EvalCtx3D& ev, int& minSumErrDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/);
 	Mode computeValues2D(int planeMode, int tileSizeX, int tileSizeY, u8* mask, int flipMode, Image* input,int px,int py, BoundingBox   bb, EvalCtx2D& ev, int& minSumErrDiff, int* tile6B, int* tile5B, int* tile4B, int* tile3B/*, int* tile2B*/);
+
+	unsigned char* CompressStream(u8* data, int size, int* sizeOut);
 };
 
 #endif
