@@ -285,7 +285,7 @@ public:
 
 	bool SetImageToEncode	(Image* newImage);
 	bool LoadImagePNG		(const char* name);
-	void Convert			(const char* name, const char* outputFile, bool dump);
+	bool Convert			(const char* name, const char* outputFile, bool dump);
 	void SaveTo2RGB			(bool doConversion, const char* optionnalFileName = NULL);
 	void SaveAsYCoCg		(const char* optionnalFileName = NULL);
 	void Release			();

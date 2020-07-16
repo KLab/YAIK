@@ -203,21 +203,27 @@ void Image::SetPixel(int x, int y, int r, int g, int b) {
 	unsigned char* src = stbi_load(filename, &w, &h, &n, 0);
 	Image* res = NULL;
 	if (src) {
-		res = Image::CreateImage(w,h,n,false);
+		if ((w & 7) || (h & 7)) {
+			printf("Source image '%s' is not a multiple of 8 x 8 pixels. Can not convert to YAIK for now\n",filename);
+		} else {
+			res = Image::CreateImage(w,h,n,false);
 
-		unsigned char* pSrc = src;
-		int end = w * h;
-		for (int p = 0; p < end; p++) {
-			res->planes[0]->GetPixels()[p] = pSrc[0];
-			res->planes[1]->GetPixels()[p] = pSrc[1];
-			res->planes[2]->GetPixels()[p] = pSrc[2];
-			if (n > 3) {
-				res->planes[3]->GetPixels()[p] = pSrc[3];
+			unsigned char* pSrc = src;
+			int end = w * h;
+			for (int p = 0; p < end; p++) {
+				res->planes[0]->GetPixels()[p] = pSrc[0];
+				res->planes[1]->GetPixels()[p] = pSrc[1];
+				res->planes[2]->GetPixels()[p] = pSrc[2];
+				if (n > 3) {
+					res->planes[3]->GetPixels()[p] = pSrc[3];
+				}
+				pSrc += n;
 			}
-			pSrc += n;
+			res->planeCount = n;
+			delete[] src;
 		}
-		res->planeCount = n;
-		delete[] src;
+	} else {
+		printf("Could not load or open '%s'.",filename);
 	}
 	return res;
 }

@@ -8983,7 +8983,9 @@ void EncoderContext::EvalLutEnded2D() {
 	}
 }
 
-void EncoderContext::Convert(const char* source, const char* outputFile, bool dump) {
+bool EncoderContext::Convert(const char* source, const char* outputFile, bool dump) {
+	bool converted = false;
+
 	FILE* outF = fopen(outputFile, "wb");
 
 	if (outF) {
@@ -9778,5 +9780,8 @@ if (0) {
 		endBlk.tag32 = 0xDEADBEEF;
 		fwrite(&endBlk, sizeof(Tag), 1, outF);
 		fclose(outF);
+		converted = true;
 	}
+
+	return converted;
 }
